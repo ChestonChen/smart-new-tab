@@ -74,6 +74,11 @@
 
 * { box-sizing: border-box; }
 
+/* Restore the standard meaning of `hidden` for elements whose flow
+   display has been overridden (e.g. .action-bar uses display:flex,
+   which would otherwise silently defeat the `hidden` attribute). */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
