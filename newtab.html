@@ -38,6 +38,49 @@
       <p class="hero-date" id="hero-date"></p>
     </section>
 
+    <!-- Impact panel: usage savings -->
+    <section class="impact" id="impact-section">
+      <header class="impact-head">
+        <h3 class="impact-title">Impact</h3>
+        <span class="impact-meta" id="impact-meta">Since today</span>
+      </header>
+      <div class="impact-grid">
+        <article class="impact-card">
+          <span class="impact-card-icon">🧹</span>
+          <div class="impact-card-body">
+            <div class="impact-card-num" id="impact-dup-week">0</div>
+            <div class="impact-card-label">duplicate tabs cleaned</div>
+            <div class="impact-card-sub"><span id="impact-dup-life">0</span> all-time</div>
+          </div>
+        </article>
+        <article class="impact-card">
+          <span class="impact-card-icon">↺</span>
+          <div class="impact-card-body">
+            <div class="impact-card-num" id="impact-res-week">0</div>
+            <div class="impact-card-label">tabs recovered</div>
+            <div class="impact-card-sub"><span id="impact-res-life">0</span> all-time</div>
+          </div>
+        </article>
+        <article class="impact-card">
+          <span class="impact-card-icon">⚡</span>
+          <div class="impact-card-body">
+            <div class="impact-card-num" id="impact-bulk-week">0</div>
+            <div class="impact-card-label">tabs bulk-closed</div>
+            <div class="impact-card-sub"><span id="impact-bulk-life">0</span> all-time</div>
+          </div>
+        </article>
+        <article class="impact-card impact-card-time">
+          <span class="impact-card-icon">⏱️</span>
+          <div class="impact-card-body">
+            <div class="impact-card-num" id="impact-time-week">0 s</div>
+            <div class="impact-card-label">≈ time saved this week</div>
+            <div class="impact-card-sub" id="impact-time-sub">10s / dupe · 25s / recovery · 3s / bulk</div>
+          </div>
+        </article>
+      </div>
+      <p class="impact-note">"This week" = last 7 days · numbers grow as you use the dashboard</p>
+    </section>
+
     <!-- Recently closed (populated only when there's something to show) -->
     <section class="recently-closed" id="recently-closed" hidden>
       <header class="rc-head">

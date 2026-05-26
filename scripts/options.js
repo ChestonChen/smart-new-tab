@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './lib/storage.js';
+import { loadStats, resetStats, lifetimeSummary, formatDuration } from './lib/stats.js';
 
 const els = {
   groupMode: document.getElementById('group-mode'),
@@ -13,6 +14,8 @@ const els = {
   addRule: document.getElementById('add-rule'),
   save: document.getElementById('save'),
   saveState: document.getElementById('save-state'),
+  impactSummary: document.getElementById('impact-summary'),
+  resetStats: document.getElementById('reset-stats'),
 };
 
 const ruleTpl = document.getElementById('rule-row');
@@ -24,6 +27,7 @@ async function init() {
   settings = await loadSettings();
   hydrate();
   bind();
+  refreshImpactSummary();
 }
 
 function hydrate() {
@@ -44,6 +48,25 @@ function bind() {
   els.llmEnabled.addEventListener('change', toggleLLMConfig);
   els.addRule.addEventListener('click', () => addRuleRow({}));
   els.save.addEventListener('click', persist);
+  els.resetStats.addEventListener('click', async () => {
+    if (!confirm('Reset all impact stats? This cannot be undone.')) return;
+    await resetStats();
+    await refreshImpactSummary();
+    els.saveState.textContent = 'Stats reset ✓';
+    setTimeout(() => (els.saveState.textContent = ''), 1600);
+  });
+}
+
+async function refreshImpactSummary() {
+  try {
+    const stats = await loadStats();
+    const life = lifetimeSummary(stats);
+    els.impactSummary.textContent =
+      `All-time: ${life.duplicates} duplicates closed · ${life.restored} restored · ` +
+      `${life.bulk} bulk-closed · ~${formatDuration(life.timeSavedSec)} saved`;
+  } catch (err) {
+    els.impactSummary.textContent = '';
+  }
 }
 
 function toggleLLMConfig() {

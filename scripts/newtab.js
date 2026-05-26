@@ -6,6 +6,14 @@ import {
 import { siteNameFor } from './lib/site-names.js';
 import { loadSettings, saveSettings } from './lib/storage.js';
 import { classifyTabsWithLLM } from './lib/llm.js';
+import {
+  loadStats,
+  markActiveDay,
+  recordEvent,
+  summarizeRange,
+  lifetimeSummary,
+  formatDuration,
+} from './lib/stats.js';
 
 const els = {
   greeting: document.getElementById('greeting'),
@@ -43,6 +51,16 @@ const els = {
   searchEmptyQuery2: document.getElementById('search-empty-query-2'),
   searchGoogleBtn: document.getElementById('search-google-btn'),
 
+  // Impact panel
+  impactMeta: document.getElementById('impact-meta'),
+  impactDupWeek: document.getElementById('impact-dup-week'),
+  impactDupLife: document.getElementById('impact-dup-life'),
+  impactResWeek: document.getElementById('impact-res-week'),
+  impactResLife: document.getElementById('impact-res-life'),
+  impactBulkWeek: document.getElementById('impact-bulk-week'),
+  impactBulkLife: document.getElementById('impact-bulk-life'),
+  impactTimeWeek: document.getElementById('impact-time-week'),
+
   aiStatusValue: document.getElementById('ai-status-value'),
   openOptions: document.getElementById('open-options'),
 };
@@ -76,6 +94,11 @@ async function init() {
   renderHero();
   updateAIStatusBadge();
   bindEvents();
+
+  // Stamp today as an active day so we can compute the "X days
+  // active" metric honestly. Fire-and-forget — never block UI on it.
+  markActiveDay().then(renderImpact).catch(() => {});
+
   await reload();
   registerTabListeners();
 }
@@ -215,9 +238,10 @@ async function reload() {
 
   updateSummary();
   render();
-  // Recently-closed is independent of the tab list; refresh both in
-  // parallel but don't block dashboard render on it.
+  // Recently-closed and Impact are independent of the tab list;
+  // refresh both in parallel without blocking dashboard render.
   refreshRecentlyClosed();
+  renderImpact();
 }
 
 async function buildGroups(tabs) {
@@ -379,6 +403,8 @@ function renderGroup({ info, items }) {
   closeBtn.addEventListener('click', async () => {
     if (allIds.length > 1 && !confirm(`Close all ${allIds.length} tabs in "${info.label}"?`)) return;
     await chrome.tabs.remove(allIds);
+    // Bulk-style action when more than one tab is killed in a click.
+    if (allIds.length > 1) recordEvent('bulk', allIds.length).then(renderImpact);
     await reload();
     toast(`Closed ${allIds.length} tab${allIds.length === 1 ? '' : 's'}`);
   });
@@ -434,11 +460,10 @@ function renderTab(t) {
     e.stopPropagation();
     const idToClose = pickIdToClose(t);
     await chrome.tabs.remove(idToClose);
-    // Only fade the row out when it's actually disappearing.
-    // If there are still copies left, the row stays and the badge
-    // count will be updated by the next reload — fading the row
-    // would mislead the user into thinking everything closed.
+    // If this row was merged (dupeCount > 1) and the user clicked ×,
+    // they consciously chose to drop a duplicate — count it.
     if (dupeCount > 1) {
+      recordEvent('duplicates', 1).then(renderImpact);
       const badge = node.querySelector('.tab-dupe-count');
       if (badge) badge.textContent = dupeCount - 1;
       closeBtn.title = dupeCount - 1 > 1
@@ -513,6 +538,7 @@ async function closeDuplicates() {
   }
   if (!confirm(`Close ${toClose.length} duplicate tab${toClose.length === 1 ? '' : 's'}?`)) return;
   await chrome.tabs.remove(toClose);
+  recordEvent('duplicates', toClose.length).then(renderImpact);
   await reload();
   toast(`Closed ${toClose.length} duplicate${toClose.length === 1 ? '' : 's'}`);
 }
@@ -522,8 +548,46 @@ async function closeEverything() {
   if (ids.length === 0) return;
   if (!confirm(`Close all ${ids.length} open tabs across every window?`)) return;
   await chrome.tabs.remove(ids);
+  recordEvent('bulk', ids.length).then(renderImpact);
   await reload();
   toast(`Closed ${ids.length} tabs`);
+}
+
+// ---------------------------------------------------------------------------
+// Impact panel
+// ---------------------------------------------------------------------------
+
+async function renderImpact() {
+  let stats;
+  try {
+    stats = await loadStats();
+  } catch (err) {
+    console.warn('[smart-new-tab] loadStats failed:', err);
+    return;
+  }
+  const week = summarizeRange(stats, 7);
+  const life = lifetimeSummary(stats);
+
+  if (els.impactDupWeek)  els.impactDupWeek.textContent  = week.duplicates;
+  if (els.impactResWeek)  els.impactResWeek.textContent  = week.restored;
+  if (els.impactBulkWeek) els.impactBulkWeek.textContent = week.bulk;
+  if (els.impactTimeWeek) els.impactTimeWeek.textContent = formatDuration(week.timeSavedSec);
+
+  if (els.impactDupLife)  els.impactDupLife.textContent  = life.duplicates;
+  if (els.impactResLife)  els.impactResLife.textContent  = life.restored;
+  if (els.impactBulkLife) els.impactBulkLife.textContent = life.bulk;
+
+  if (els.impactMeta) {
+    const firstUsedMs = (stats.firstUsed || 0) * 1000;
+    const days = Math.max(1, Math.floor((Date.now() - firstUsedMs) / 86_400_000) + 1);
+    const fmt = new Intl.DateTimeFormat(navigator.language || 'en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    els.impactMeta.textContent =
+      `Since ${fmt.format(new Date(firstUsedMs))} · ${days} day${days === 1 ? '' : 's'} · ${life.activeDays} active`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +625,7 @@ async function refreshRecentlyClosed() {
       items.push({
         kind: 'window',
         sessionId: w.sessionId,
+        tabCount: tabsArr.length,
         title: `Window · ${tabsArr.length} tab${tabsArr.length === 1 ? '' : 's'}`,
         subtitle: heads.join(' · '),
         favIconUrl: tabsArr[0]?.favIconUrl,
@@ -631,6 +696,9 @@ function renderRecentlyClosed(items) {
     li.addEventListener('click', async () => {
       try {
         await chrome.sessions.restore(it.sessionId);
+        // A window restore brings back N tabs at once; count each.
+        const amount = it.kind === 'window' ? Math.max(1, Number(it.tabCount) || 1) : 1;
+        recordEvent('restored', amount).then(renderImpact);
         await reload();
       } catch (err) {
         toast('Could not restore: ' + err.message);
@@ -702,6 +770,7 @@ async function bulkCloseSelected() {
   if (ids.length === 0) return;
   if (!confirm(`Close ${ids.length} selected tab${ids.length === 1 ? '' : 's'}?`)) return;
   await chrome.tabs.remove(ids);
+  recordEvent('bulk', ids.length).then(renderImpact);
   state.selection.clear();
   await reload();
   toast(`Closed ${ids.length} tab${ids.length === 1 ? '' : 's'}`);

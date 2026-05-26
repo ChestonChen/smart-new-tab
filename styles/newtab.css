@@ -457,6 +457,97 @@ html, body {
 .footer a:hover { color: var(--text); }
 .footer .dot { margin: 0 8px; }
 
+/* ---------- impact panel ------------------------------------------------ */
+.impact {
+  margin-bottom: 32px;
+}
+.impact-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.impact-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: -0.01em;
+}
+.impact-meta {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.impact-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #6366f1 4%, var(--surface)), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: box-shadow .18s, transform .18s, border-color .18s;
+}
+.impact-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #6366f1, #ec4899);
+}
+.impact-card:nth-child(2)::before { background: linear-gradient(180deg, #10b981, #06b6d4); }
+.impact-card:nth-child(3)::before { background: linear-gradient(180deg, #f59e0b, #ef4444); }
+.impact-card:nth-child(4)::before { background: linear-gradient(180deg, #8b5cf6, #ec4899); }
+.impact-card:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+.impact-card-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.06));
+}
+.impact-card-body {
+  min-width: 0;
+  flex: 1;
+}
+.impact-card-num {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.impact-card-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.impact-card-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+.impact-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
 /* ---------- recently closed -------------------------------------------- */
 .recently-closed {
   margin-bottom: 24px;
