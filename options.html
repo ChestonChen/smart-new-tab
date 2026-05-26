@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart New Tab — Settings</title>
+  <link rel="stylesheet" href="styles/options.css">
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>Settings</h1>
+      <p class="muted">Configure how Smart New Tab groups your tabs.</p>
+    </header>
+
+    <section class="card">
+      <h2>General</h2>
+
+      <label class="row">
+        <span>Default grouping mode</span>
+        <select id="group-mode">
+          <option value="category">Smart category (recommended)</option>
+          <option value="domain">By domain</option>
+          <option value="window">By window</option>
+        </select>
+      </label>
+
+      <label class="row checkbox">
+        <input type="checkbox" id="show-internal">
+        <span>Show internal pages (chrome://, extensions)</span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>AI grouping (optional)</h2>
+      <p class="muted">
+        When enabled, only <b>host</b> and <b>title</b> of each tab are sent to the LLM —
+        never the full URL, cookies, or page content.
+      </p>
+
+      <label class="row checkbox">
+        <input type="checkbox" id="llm-enabled">
+        <span>Enable AI grouping</span>
+      </label>
+
+      <div id="llm-config" class="config-grid">
+        <label>
+          <span>Provider</span>
+          <select id="llm-provider">
+            <option value="openai">OpenAI (or OpenAI-compatible)</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="ollama">Ollama (local)</option>
+            <option value="custom">Custom (OpenAI-shaped)</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Endpoint</span>
+          <input id="llm-endpoint" type="text" placeholder="(leave blank for provider default)">
+        </label>
+
+        <label>
+          <span>Model</span>
+          <input id="llm-model" type="text" placeholder="gpt-4o-mini / claude-3-5-haiku-latest / llama3.2">
+        </label>
+
+        <label>
+          <span>API key</span>
+          <input id="llm-key" type="password" placeholder="(not required for local Ollama)">
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Custom rules</h2>
+      <p class="muted">
+        Force-assign tabs whose URL/host/title contains a substring to a category.
+        Earlier rules win.
+      </p>
+
+      <div id="user-rules"></div>
+      <button class="ghost" id="add-rule">+ Add rule</button>
+    </section>
+
+    <footer class="footer">
+      <button class="primary" id="save">Save</button>
+      <span id="save-state" class="muted"></span>
+    </footer>
+  </main>
+
+  <template id="rule-row">
+    <div class="rule-row">
+      <input class="rule-match" placeholder="match (e.g. notion.so)">
+      <input class="rule-category" placeholder="category (e.g. Notes)">
+      <input class="rule-emoji" placeholder="emoji" maxlength="4">
+      <button class="ghost rule-remove" title="Remove">×</button>
+    </div>
+  </template>
+
+  <script src="scripts/options.js" type="module"></script>
+</body>
+</html>

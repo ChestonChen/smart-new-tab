@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts
+*.zip
+dist/
+
+# Local secrets (just in case)
+.env
+.env.local

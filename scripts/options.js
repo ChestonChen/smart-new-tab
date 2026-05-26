@@ -1,0 +1,89 @@
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './lib/storage.js';
+
+const els = {
+  groupMode: document.getElementById('group-mode'),
+  showInternal: document.getElementById('show-internal'),
+  llmEnabled: document.getElementById('llm-enabled'),
+  llmConfig: document.getElementById('llm-config'),
+  llmProvider: document.getElementById('llm-provider'),
+  llmEndpoint: document.getElementById('llm-endpoint'),
+  llmModel: document.getElementById('llm-model'),
+  llmKey: document.getElementById('llm-key'),
+  userRules: document.getElementById('user-rules'),
+  addRule: document.getElementById('add-rule'),
+  save: document.getElementById('save'),
+  saveState: document.getElementById('save-state'),
+};
+
+const ruleTpl = document.getElementById('rule-row');
+let settings = structuredClone(DEFAULT_SETTINGS);
+
+init();
+
+async function init() {
+  settings = await loadSettings();
+  hydrate();
+  bind();
+}
+
+function hydrate() {
+  els.groupMode.value = settings.groupMode || 'category';
+  els.showInternal.checked = !!settings.showInternalPages;
+  els.llmEnabled.checked = !!settings.llm?.enabled;
+  els.llmProvider.value = settings.llm?.provider || 'openai';
+  els.llmEndpoint.value = settings.llm?.endpoint || '';
+  els.llmModel.value = settings.llm?.model || '';
+  els.llmKey.value = settings.llm?.apiKey || '';
+  toggleLLMConfig();
+
+  els.userRules.innerHTML = '';
+  for (const r of settings.userRules || []) addRuleRow(r);
+}
+
+function bind() {
+  els.llmEnabled.addEventListener('change', toggleLLMConfig);
+  els.addRule.addEventListener('click', () => addRuleRow({}));
+  els.save.addEventListener('click', persist);
+}
+
+function toggleLLMConfig() {
+  els.llmConfig.classList.toggle('disabled', !els.llmEnabled.checked);
+}
+
+function addRuleRow(rule) {
+  const node = ruleTpl.content.firstElementChild.cloneNode(true);
+  node.querySelector('.rule-match').value = rule.match || '';
+  node.querySelector('.rule-category').value = rule.category || '';
+  node.querySelector('.rule-emoji').value = rule.emoji || '';
+  node.querySelector('.rule-remove').addEventListener('click', () => node.remove());
+  els.userRules.appendChild(node);
+}
+
+function collectRules() {
+  const rules = [];
+  for (const row of els.userRules.querySelectorAll('.rule-row')) {
+    const match = row.querySelector('.rule-match').value.trim();
+    const category = row.querySelector('.rule-category').value.trim();
+    const emoji = row.querySelector('.rule-emoji').value.trim();
+    if (!match || !category) continue;
+    rules.push({ match, category, emoji });
+  }
+  return rules;
+}
+
+async function persist() {
+  settings.groupMode = els.groupMode.value;
+  settings.showInternalPages = els.showInternal.checked;
+  settings.llm = {
+    enabled: els.llmEnabled.checked,
+    provider: els.llmProvider.value,
+    endpoint: els.llmEndpoint.value.trim(),
+    model: els.llmModel.value.trim(),
+    apiKey: els.llmKey.value,
+  };
+  settings.userRules = collectRules();
+
+  await saveSettings(settings);
+  els.saveState.textContent = 'Saved ✓';
+  setTimeout(() => (els.saveState.textContent = ''), 1600);
+}
