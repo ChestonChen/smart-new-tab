@@ -457,6 +457,184 @@ html, body {
 .footer a:hover { color: var(--text); }
 .footer .dot { margin: 0 8px; }
 
+/* ---------- recently closed -------------------------------------------- */
+.recently-closed {
+  margin-bottom: 24px;
+}
+.rc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.rc-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: -0.01em;
+}
+.rc-hint {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.rc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.rc-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .1s;
+  min-width: 0;
+}
+.rc-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+.rc-item:active { transform: scale(0.98); }
+.rc-favicon {
+  width: 16px; height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.rc-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rc-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.rc-meta {
+  font-size: 10.5px;
+  color: var(--text-mute);
+}
+.rc-restore {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-mute);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.rc-item:hover .rc-restore { opacity: 1; color: var(--text-dim); }
+
+/* ---------- multi-select ----------------------------------------------- */
+.tab.selected {
+  background: color-mix(in srgb, #3b82f6 14%, transparent);
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+.tab.selected:hover {
+  background: color-mix(in srgb, #3b82f6 22%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  .tab.selected {
+    background: color-mix(in srgb, #60a5fa 18%, transparent);
+    box-shadow: inset 3px 0 0 #60a5fa;
+  }
+}
+
+.action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a1a;
+  color: #f4f4f5;
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.35),
+              0 0 0 1px rgba(255, 255, 255, 0.06);
+  z-index: 100;
+  animation: ab-in .22s cubic-bezier(.4, 0, .2, 1);
+}
+@keyframes ab-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.ab-count {
+  font-size: 13px;
+  font-weight: 500;
+  padding-right: 6px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  margin-right: 2px;
+}
+.ab-btn {
+  background: rgba(255, 255, 255, 0.10);
+  border: none;
+  color: inherit;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .15s;
+}
+.ab-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.ab-btn-primary { background: #ef4444; }
+.ab-btn-primary:hover { background: #dc2626; }
+.ab-cancel {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.ab-cancel:hover { color: white; background: rgba(255, 255, 255, 0.08); }
+
+/* ---------- search empty state ----------------------------------------- */
+.empty kbd {
+  font-family: var(--font);
+  font-size: 11px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  color: var(--text-dim);
+}
+.pill-google {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 14px;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.pill-google:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-dim);
+}
+.pill-google:active { transform: scale(0.98); }
+
 /* ---------- toast ------------------------------------------------------ */
 .toast-host {
   position: fixed;

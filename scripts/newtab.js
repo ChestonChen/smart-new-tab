@@ -26,6 +26,23 @@ const els = {
   board: document.getElementById('board'),
   emptyState: document.getElementById('empty-state'),
 
+  // Recently closed
+  recentlyClosed: document.getElementById('recently-closed'),
+  recentlyClosedList: document.getElementById('recently-closed-list'),
+
+  // Bulk action bar
+  actionBar: document.getElementById('action-bar'),
+  actionBarCount: document.getElementById('ab-count-num'),
+  abClose: document.getElementById('ab-close'),
+  abBookmark: document.getElementById('ab-bookmark'),
+  abCancel: document.getElementById('ab-cancel'),
+
+  // Search empty state
+  searchEmpty: document.getElementById('search-empty'),
+  searchEmptyQuery: document.getElementById('search-empty-query'),
+  searchEmptyQuery2: document.getElementById('search-empty-query-2'),
+  searchGoogleBtn: document.getElementById('search-google-btn'),
+
   aiStatusValue: document.getElementById('ai-status-value'),
   openOptions: document.getElementById('open-options'),
 };
@@ -41,6 +58,9 @@ const state = {
   query: '',
   groups: new Map(),
   dupeIndex: new Map(),
+  // Multi-select: stores merged-row ids (== representative tab.id).
+  // Closing a selected row will tear down ALL of that row's _dupeIds.
+  selection: new Set(),
 };
 
 // ---------------------------------------------------------------------------
@@ -65,10 +85,22 @@ function bindEvents() {
     state.query = e.target.value.trim().toLowerCase();
     render();
   });
+  // Enter inside the search box: activate the first visible match,
+  // or — when nothing matches — fall back to a Google search.
+  els.search.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (!state.query) return;
+    const first = findFirstVisibleTab();
+    if (first) {
+      activateTab(first);
+    } else {
+      searchOnGoogle(state.query, e.shiftKey || e.metaKey || e.ctrlKey);
+    }
+  });
+
   els.refresh.addEventListener('click', () => reload());
   els.settings.addEventListener('click', openOptions);
   els.google.addEventListener('click', (e) => {
-    // Shift / cmd-click → open in a new tab so the dashboard stays.
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       window.open('https://www.google.com/', '_blank', 'noopener');
     } else {
@@ -80,16 +112,38 @@ function bindEvents() {
   els.groupMode.addEventListener('change', async () => {
     state.settings.groupMode = els.groupMode.value;
     await saveSettings(state.settings);
+    clearSelection();
     await reload();
   });
 
   els.dedupeBtn.addEventListener('click', closeDuplicates);
   els.closeAllBtn.addEventListener('click', closeEverything);
 
+  // Bulk-action bar
+  els.abClose.addEventListener('click', bulkCloseSelected);
+  els.abBookmark.addEventListener('click', bulkBookmarkSelected);
+  els.abCancel.addEventListener('click', clearSelection);
+
+  // Google fallback when search returns nothing
+  els.searchGoogleBtn.addEventListener('click', (e) => {
+    searchOnGoogle(state.query, e.shiftKey || e.metaKey || e.ctrlKey);
+  });
+
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement !== els.search) {
       e.preventDefault();
       els.search.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (state.selection.size > 0) {
+        clearSelection();
+        e.preventDefault();
+      } else if (state.query && document.activeElement === els.search) {
+        els.search.value = '';
+        state.query = '';
+        render();
+      }
     }
   });
 }
@@ -148,8 +202,22 @@ async function reload() {
   const tabsForGroups = mode === 'window' ? tabs : mergeDuplicates(tabs);
   state.groups = await buildGroups(tabsForGroups);
 
+  // Prune selection: drop ids that no longer exist (just closed).
+  if (state.selection.size > 0) {
+    const liveRowIds = new Set();
+    for (const g of state.groups.values()) {
+      for (const t of g.items) liveRowIds.add(t.id);
+    }
+    for (const id of state.selection) {
+      if (!liveRowIds.has(id)) state.selection.delete(id);
+    }
+  }
+
   updateSummary();
   render();
+  // Recently-closed is independent of the tab list; refresh both in
+  // parallel but don't block dashboard render on it.
+  refreshRecentlyClosed();
 }
 
 async function buildGroups(tabs) {
@@ -255,13 +323,29 @@ function render() {
   }
 
   if (matchedGroups.length === 0) {
-    const empty = els.emptyState.cloneNode(true);
-    empty.hidden = false;
-    els.board.appendChild(empty);
-    return;
+    if (q) {
+      els.searchEmptyQuery.textContent = q;
+      els.searchEmptyQuery2.textContent = q;
+      const empty = els.searchEmpty.cloneNode(true);
+      empty.hidden = false;
+      // Cloned button needs its own click handler; the original
+      // button's listener was bound at startup but that element is
+      // now detached.
+      empty.querySelector('#search-google-btn').addEventListener('click', (e) => {
+        searchOnGoogle(q, e.shiftKey || e.metaKey || e.ctrlKey);
+      });
+      els.board.appendChild(empty);
+    } else {
+      const empty = els.emptyState.cloneNode(true);
+      empty.hidden = false;
+      els.board.appendChild(empty);
+    }
+  } else {
+    for (const g of matchedGroups) els.board.appendChild(renderGroup(g));
   }
-
-  for (const g of matchedGroups) els.board.appendChild(renderGroup(g));
+  // Always re-sync selection — handles search filters too, where a
+  // selected tab might be hidden but the action bar should stay up.
+  applySelectionToDOM();
 }
 
 function matchTab(t, q) {
@@ -326,12 +410,19 @@ function renderTab(t) {
 
   node.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
+    // Cmd/Ctrl-click → toggle selection; plain click → activate.
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      toggleSelection(t.id);
+      return;
+    }
     activateTab(t);
   });
   node.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      activateTab(t);
+      if (e.metaKey || e.ctrlKey) toggleSelection(t.id);
+      else activateTab(t);
     }
   });
 
@@ -433,6 +524,224 @@ async function closeEverything() {
   await chrome.tabs.remove(ids);
   await reload();
   toast(`Closed ${ids.length} tabs`);
+}
+
+// ---------------------------------------------------------------------------
+// Recently closed
+// ---------------------------------------------------------------------------
+
+async function refreshRecentlyClosed() {
+  if (!chrome.sessions || !chrome.sessions.getRecentlyClosed) {
+    els.recentlyClosed.hidden = true;
+    return;
+  }
+  let sessions;
+  try {
+    sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 12 });
+  } catch (err) {
+    console.warn('[smart-new-tab] sessions API failed:', err);
+    els.recentlyClosed.hidden = true;
+    return;
+  }
+  const items = [];
+  for (const s of sessions) {
+    if (s.tab) {
+      items.push({
+        kind: 'tab',
+        sessionId: s.tab.sessionId,
+        title: s.tab.title || s.tab.url,
+        url: s.tab.url,
+        favIconUrl: s.tab.favIconUrl,
+        lastModified: s.lastModified,
+      });
+    } else if (s.window) {
+      const w = s.window;
+      const tabsArr = w.tabs || [];
+      const heads = tabsArr.slice(0, 3).map((t) => t.title).filter(Boolean);
+      items.push({
+        kind: 'window',
+        sessionId: w.sessionId,
+        title: `Window · ${tabsArr.length} tab${tabsArr.length === 1 ? '' : 's'}`,
+        subtitle: heads.join(' · '),
+        favIconUrl: tabsArr[0]?.favIconUrl,
+        url: tabsArr[0]?.url,
+        lastModified: s.lastModified,
+      });
+    }
+  }
+  renderRecentlyClosed(items);
+}
+
+function renderRecentlyClosed(items) {
+  if (items.length === 0) {
+    els.recentlyClosed.hidden = true;
+    return;
+  }
+  els.recentlyClosed.hidden = false;
+  els.recentlyClosedList.innerHTML = '';
+
+  for (const it of items) {
+    const li = document.createElement('li');
+    li.className = 'rc-item';
+    li.title = it.url || it.subtitle || it.title;
+
+    const fav = document.createElement('img');
+    fav.className = 'rc-favicon';
+    fav.alt = '';
+    fav.loading = 'lazy';
+    if (it.kind === 'window') {
+      // Stack-of-tabs glyph for restored-window entries.
+      fav.src =
+        'data:image/svg+xml;utf8,' +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
+            '<rect x="1.5" y="2.5" width="11" height="8" rx="1.5" fill="none" stroke="%238a8780" stroke-width="1.2"/>' +
+            '<rect x="3.5" y="4.5" width="11" height="8" rx="1.5" fill="%23ffffff" stroke="%238a8780" stroke-width="1.2"/>' +
+          '</svg>',
+        );
+    } else if (it.favIconUrl) {
+      fav.src = it.favIconUrl;
+    } else if (it.url) {
+      const u = new URL(chrome.runtime.getURL('/_favicon/'));
+      u.searchParams.set('pageUrl', it.url);
+      u.searchParams.set('size', '32');
+      fav.src = u.toString();
+    }
+    li.appendChild(fav);
+
+    const text = document.createElement('div');
+    text.className = 'rc-text';
+    const name = document.createElement('div');
+    name.className = 'rc-name';
+    name.textContent = it.title;
+    const meta = document.createElement('div');
+    meta.className = 'rc-meta';
+    meta.textContent = it.subtitle
+      ? `${it.subtitle} · ${relativeTime(it.lastModified)}`
+      : relativeTime(it.lastModified);
+    text.appendChild(name);
+    text.appendChild(meta);
+    li.appendChild(text);
+
+    const restore = document.createElement('span');
+    restore.className = 'rc-restore';
+    restore.textContent = '↺';
+    li.appendChild(restore);
+
+    li.addEventListener('click', async () => {
+      try {
+        await chrome.sessions.restore(it.sessionId);
+        await reload();
+      } catch (err) {
+        toast('Could not restore: ' + err.message);
+      }
+    });
+
+    els.recentlyClosedList.appendChild(li);
+  }
+}
+
+function relativeTime(unixSeconds) {
+  if (!unixSeconds) return '';
+  const diff = Math.max(0, Date.now() / 1000 - unixSeconds);
+  if (diff < 45) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-select
+// ---------------------------------------------------------------------------
+
+function rowIdToMergedTab(rowId) {
+  for (const g of state.groups.values()) {
+    for (const t of g.items) if (t.id === rowId) return t;
+  }
+  return null;
+}
+
+function toggleSelection(rowId) {
+  if (state.selection.has(rowId)) state.selection.delete(rowId);
+  else state.selection.add(rowId);
+  applySelectionToDOM();
+}
+
+function clearSelection() {
+  state.selection.clear();
+  applySelectionToDOM();
+}
+
+function applySelectionToDOM() {
+  for (const node of els.board.querySelectorAll('.tab')) {
+    const id = Number(node.dataset.tabId);
+    node.classList.toggle('selected', state.selection.has(id));
+  }
+  if (state.selection.size === 0) {
+    els.actionBar.hidden = true;
+    return;
+  }
+  // Count REAL underlying tabs (handles dupes inside merged rows).
+  let n = 0;
+  for (const rowId of state.selection) {
+    const t = rowIdToMergedTab(rowId);
+    if (!t) continue;
+    n += (t._dupeIds || [t.id]).length;
+  }
+  els.actionBarCount.textContent = n;
+  els.actionBar.hidden = false;
+}
+
+async function bulkCloseSelected() {
+  if (state.selection.size === 0) return;
+  const ids = [];
+  for (const rowId of state.selection) {
+    const t = rowIdToMergedTab(rowId);
+    if (t) ids.push(...(t._dupeIds || [t.id]));
+  }
+  if (ids.length === 0) return;
+  if (!confirm(`Close ${ids.length} selected tab${ids.length === 1 ? '' : 's'}?`)) return;
+  await chrome.tabs.remove(ids);
+  state.selection.clear();
+  await reload();
+  toast(`Closed ${ids.length} tab${ids.length === 1 ? '' : 's'}`);
+}
+
+async function bulkBookmarkSelected() {
+  if (state.selection.size === 0) return;
+  let ok = 0;
+  for (const rowId of state.selection) {
+    const t = rowIdToMergedTab(rowId);
+    if (!t) continue;
+    try {
+      await chrome.bookmarks.create({ title: t.title, url: t.url });
+      ok++;
+    } catch {
+      // ignore individual failures; keep going so the rest succeed
+    }
+  }
+  clearSelection();
+  toast(`Bookmarked ${ok}`);
+}
+
+// ---------------------------------------------------------------------------
+// Search → Google fallback
+// ---------------------------------------------------------------------------
+
+function searchOnGoogle(query, openInNewTab = false) {
+  if (!query) return;
+  const url = 'https://www.google.com/search?q=' + encodeURIComponent(query);
+  if (openInNewTab) window.open(url, '_blank', 'noopener');
+  else window.location.href = url;
+}
+
+function findFirstVisibleTab() {
+  const q = state.query;
+  if (!q) return null;
+  for (const g of state.groups.values()) {
+    for (const t of g.items) if (matchTab(t, q)) return t;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
