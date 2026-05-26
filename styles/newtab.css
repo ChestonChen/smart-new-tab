@@ -19,7 +19,7 @@
   --sky:     #38BDF8;
 
   /* ----- semantic ----- */
-  --bg-base:    #FAFAFB;
+  --bg-base:    #F1E8FA;  /* fallback under the mesh; gentle lavender */
   --text:       #1A1530;
   --text-dim:   #4F4A66;
   --text-mute:  #8783A6;
@@ -123,32 +123,36 @@ html, body {
 }
 
 /* ----- mesh-gradient backdrop -------------------------------------------
-   Four overlapping radial blobs in the four corners give an "Arc sidebar"
-   feel. They sit on a fixed pseudo-element so they don't scroll with the
-   content (cheaper to composite, and the parallax-free feel is calmer). */
+   A diagonal pastel under-layer carries the overall hue band; four
+   overlapping radial blobs above it punch in extra color where they
+   land. The whole thing sits on a fixed pseudo-element so it doesn't
+   scroll with content (cheap to composite). The drift animation gives
+   slow life without distraction. */
 body::before {
   content: "";
   position: fixed;
   inset: -10vmax;
   z-index: -1;
   background:
-    radial-gradient(46vmax 36vmax at 8% 0%,   rgba(167, 139, 250, 0.40), transparent 60%),
-    radial-gradient(40vmax 32vmax at 98% 12%, rgba(236, 72, 153, 0.28),  transparent 62%),
-    radial-gradient(46vmax 40vmax at 0% 100%, rgba(56, 189, 248, 0.22),  transparent 60%),
-    radial-gradient(50vmax 42vmax at 100% 100%, rgba(251, 113, 133, 0.22), transparent 60%),
-    var(--bg-base);
-  filter: saturate(115%);
+    /* high-light blobs on top */
+    radial-gradient(54vmax 40vmax at 6% -6%,    rgba(167, 139, 250, 0.70), transparent 55%),
+    radial-gradient(46vmax 38vmax at 102% 6%,   rgba(236, 72, 153, 0.55),  transparent 58%),
+    radial-gradient(50vmax 42vmax at -4% 102%,  rgba(56, 189, 248, 0.48),  transparent 58%),
+    radial-gradient(56vmax 44vmax at 104% 104%, rgba(251, 113, 133, 0.50), transparent 58%),
+    /* diagonal pastel under-layer */
+    linear-gradient(135deg, #EDE3FF 0%, #FDE7F4 38%, #FFE4ED 62%, #DAEBFF 100%);
+  filter: saturate(118%);
   animation: drift 24s ease-in-out infinite alternate;
 }
 @media (prefers-color-scheme: dark) {
   body::before {
     background:
-      radial-gradient(46vmax 36vmax at 8% 0%,   rgba(124, 92, 255, 0.42), transparent 60%),
-      radial-gradient(40vmax 32vmax at 98% 12%, rgba(236, 72, 153, 0.26), transparent 62%),
-      radial-gradient(46vmax 40vmax at 0% 100%, rgba(56, 189, 248, 0.20), transparent 60%),
-      radial-gradient(50vmax 42vmax at 100% 100%, rgba(251, 113, 133, 0.18), transparent 60%),
-      var(--bg-base);
-    filter: saturate(110%);
+      radial-gradient(54vmax 40vmax at 6% -6%,    rgba(124, 92, 255, 0.65), transparent 55%),
+      radial-gradient(46vmax 38vmax at 102% 6%,   rgba(236, 72, 153, 0.45), transparent 58%),
+      radial-gradient(50vmax 42vmax at -4% 102%,  rgba(56, 189, 248, 0.38), transparent 58%),
+      radial-gradient(56vmax 44vmax at 104% 104%, rgba(251, 113, 133, 0.40), transparent 58%),
+      linear-gradient(135deg, #1B0E40 0%, #2A1248 38%, #2D0F3F 62%, #0F1C44 100%);
+    filter: saturate(115%);
   }
 }
 @keyframes drift {
