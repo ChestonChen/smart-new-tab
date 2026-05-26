@@ -2,26 +2,31 @@ import { fetchAllTabs, indexByDupeKey, resolveFavicon } from './lib/tabs.js';
 import {
   categorizeHeuristic,
   applyLLMOverrides,
-  OTHER_CATEGORY,
 } from './lib/categorize.js';
+import { siteNameFor } from './lib/site-names.js';
 import { loadSettings, saveSettings } from './lib/storage.js';
 import { classifyTabsWithLLM } from './lib/llm.js';
 
 const els = {
-  brandSub: document.getElementById('brand-sub'),
+  greeting: document.getElementById('greeting'),
+  heroDate: document.getElementById('hero-date'),
+
   search: document.getElementById('search-input'),
   refresh: document.getElementById('refresh-btn'),
   settings: document.getElementById('settings-btn'),
+
   groupMode: document.getElementById('group-mode'),
-  dedupe: document.getElementById('dedupe-btn'),
+  summaryStat: document.getElementById('summary-stat'),
+  dedupeBtn: document.getElementById('dedupe-btn'),
+  dedupeCount: document.getElementById('dedupe-count'),
+  closeAllBtn: document.getElementById('close-all-btn'),
+  totalTabCount: document.getElementById('total-tab-count'),
+
   board: document.getElementById('board'),
   emptyState: document.getElementById('empty-state'),
+
   aiStatusValue: document.getElementById('ai-status-value'),
   openOptions: document.getElementById('open-options'),
-  statTabs: document.getElementById('stat-tabs'),
-  statWindows: document.getElementById('stat-windows'),
-  statDomains: document.getElementById('stat-domains'),
-  statDupes: document.getElementById('stat-dupes'),
 };
 
 const tpl = {
@@ -33,7 +38,7 @@ const state = {
   tabs: [],
   settings: null,
   query: '',
-  groups: new Map(), // current displayed groups
+  groups: new Map(),
   dupeIndex: new Map(),
 };
 
@@ -46,9 +51,9 @@ init().catch((err) => {
 
 async function init() {
   state.settings = await loadSettings();
-  els.groupMode.value = state.settings.groupMode || 'category';
+  els.groupMode.value = state.settings.groupMode || 'domain';
+  renderHero();
   updateAIStatusBadge();
-
   bindEvents();
   await reload();
   registerTabListeners();
@@ -69,9 +74,9 @@ function bindEvents() {
     await reload();
   });
 
-  els.dedupe.addEventListener('click', closeDuplicates);
+  els.dedupeBtn.addEventListener('click', closeDuplicates);
+  els.closeAllBtn.addEventListener('click', closeEverything);
 
-  // Keyboard: '/' focuses search.
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement !== els.search) {
       e.preventDefault();
@@ -91,36 +96,57 @@ function registerTabListeners() {
   chrome.tabs.onAttached.addListener(debounced);
 }
 
-async function reload() {
-  els.brandSub.textContent = 'Loading…';
-  els.dedupe.disabled = true;
+// ---------------------------------------------------------------------------
+// Hero
+// ---------------------------------------------------------------------------
 
+function renderHero() {
+  const now = new Date();
+  const h = now.getHours();
+  let g;
+  if (h < 5) g = 'Good night';
+  else if (h < 12) g = 'Good morning';
+  else if (h < 18) g = 'Good afternoon';
+  else if (h < 22) g = 'Good evening';
+  else g = 'Good night';
+  els.greeting.textContent = g;
+
+  const fmt = new Intl.DateTimeFormat(navigator.language || 'en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  els.heroDate.textContent = fmt.format(now);
+}
+
+// ---------------------------------------------------------------------------
+// Data
+// ---------------------------------------------------------------------------
+
+async function reload() {
   const tabs = await fetchAllTabs({
     includeInternal: state.settings.showInternalPages,
   });
   state.tabs = tabs;
   state.dupeIndex = indexByDupeKey(tabs);
-
   state.groups = await buildGroups(tabs);
 
-  updateStats();
+  updateSummary();
   render();
-  els.dedupe.disabled = false;
 }
 
 async function buildGroups(tabs) {
-  const mode = state.settings.groupMode || 'category';
-  if (mode === 'domain') return groupByRootDomain(tabs);
+  const mode = state.settings.groupMode || 'domain';
+  if (mode === 'domain') return groupByDomain(tabs);
   if (mode === 'window') return groupByWindow(tabs);
 
   // category mode
   const heuristic = categorizeHeuristic(tabs, {
     userRules: state.settings.userRules,
   });
-
   if (!state.settings.llm?.enabled) return heuristic;
 
-  // Run LLM in the background and re-render when ready.
   classifyTabsWithLLM(tabs, state.settings.llm).then((overrides) => {
     if (!overrides || overrides.size === 0) return;
     const merged = applyLLMOverrides(heuristic, tabs, overrides);
@@ -132,16 +158,18 @@ async function buildGroups(tabs) {
   return heuristic;
 }
 
-function groupByRootDomain(tabs) {
+/**
+ * Domain grouping: tabs on the same site share a group; group label
+ * is the human-friendly site name (YouTube, Lark Docs, …).
+ */
+function groupByDomain(tabs) {
   const groups = new Map();
   for (const t of tabs) {
-    const id = 'dom:' + (t.rootDomain || 'unknown');
-    const info = {
-      id,
-      label: t.rootDomain || 'Unknown',
-      emoji: '🌐',
-    };
-    if (!groups.has(id)) groups.set(id, { info, items: [] });
+    const label = siteNameFor(t);
+    const id = 'site:' + label;
+    if (!groups.has(id)) {
+      groups.set(id, { info: { id, label, emoji: '' }, items: [] });
+    }
     groups.get(id).items.push(t);
   }
   return new Map(
@@ -153,7 +181,7 @@ function groupByWindow(tabs) {
   const groups = new Map();
   for (const t of tabs) {
     const id = 'win:' + t.windowId;
-    const info = { id, label: `Window ${t.windowId}`, emoji: '🪟' };
+    const info = { id, label: `Window ${t.windowId}`, emoji: '' };
     if (!groups.has(id)) groups.set(id, { info, items: [] });
     groups.get(id).items.push(t);
   }
@@ -161,25 +189,39 @@ function groupByWindow(tabs) {
 }
 
 // ---------------------------------------------------------------------------
-// Stats
+// Summary header
 // ---------------------------------------------------------------------------
 
-function updateStats() {
+function updateSummary() {
   const tabs = state.tabs;
-  els.statTabs.textContent = tabs.length;
-  els.statWindows.textContent = new Set(tabs.map((t) => t.windowId)).size;
-  els.statDomains.textContent = new Set(tabs.map((t) => t.rootDomain)).size;
+  const groupCount = state.groups.size;
+  const windowCount = new Set(tabs.map((t) => t.windowId)).size;
 
   let dupes = 0;
   for (const arr of state.dupeIndex.values()) if (arr.length > 1) dupes += arr.length - 1;
-  els.statDupes.textContent = dupes;
-  const dupesCard = els.statDupes.closest('.stat-card');
-  if (dupesCard) dupesCard.dataset.zero = dupes === 0 ? 'true' : 'false';
 
-  els.brandSub.textContent =
-    tabs.length === 0
-      ? 'No open tabs to show.'
-      : `${tabs.length} tabs across ${els.statWindows.textContent} window${els.statWindows.textContent === '1' ? '' : 's'}`;
+  const mode = state.settings.groupMode || 'domain';
+  const groupNoun = mode === 'domain' ? plural(groupCount, 'site', 'sites')
+                  : mode === 'window' ? plural(windowCount, 'window', 'windows')
+                  : plural(groupCount, 'category', 'categories');
+
+  els.summaryStat.textContent =
+    `${groupCount} ${groupNoun}` +
+    (windowCount > 1 ? ` · ${windowCount} windows` : '');
+
+  if (dupes > 0) {
+    els.dedupeBtn.hidden = false;
+    els.dedupeCount.textContent = dupes;
+  } else {
+    els.dedupeBtn.hidden = true;
+  }
+
+  els.totalTabCount.textContent = tabs.length;
+  els.closeAllBtn.disabled = tabs.length === 0;
+}
+
+function plural(n, one, many) {
+  return n === 1 ? one : many;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +230,6 @@ function updateStats() {
 
 function render() {
   els.board.innerHTML = '';
-
   const q = state.query;
   const matchedGroups = [];
 
@@ -204,9 +245,7 @@ function render() {
     return;
   }
 
-  for (const g of matchedGroups) {
-    els.board.appendChild(renderGroup(g));
-  }
+  for (const g of matchedGroups) els.board.appendChild(renderGroup(g));
 }
 
 function matchTab(t, q) {
@@ -220,57 +259,46 @@ function matchTab(t, q) {
 function renderGroup({ info, items }) {
   const node = tpl.group.content.firstElementChild.cloneNode(true);
   node.dataset.groupId = info.id;
-  node.style.setProperty('--group-hue', hashHue(info.id));
-  node.querySelector('.group-emoji').textContent = info.emoji || '📁';
   node.querySelector('.group-name').textContent = info.label;
-  node.querySelector('.group-count').textContent = items.length;
 
-  const list = node.querySelector('.tab-grid');
-  for (const t of items) list.appendChild(renderTab(t, info));
+  const count = items.length;
+  node.querySelector('.group-count').textContent = count;
+  node.querySelector('.group-count-label').textContent =
+    count === 1 ? ' tab open' : ' tabs open';
 
-  node.querySelector('.group-collapse').addEventListener('click', () => {
-    node.classList.toggle('collapsed');
-  });
-  node.querySelector('.group-close-all').addEventListener('click', async () => {
-    if (!confirm(`Close all ${items.length} tabs in "${info.label}"?`)) return;
+  const list = node.querySelector('.tab-list');
+  for (const t of items) list.appendChild(renderTab(t));
+
+  const closeBtn = node.querySelector('.group-close-all');
+  closeBtn.querySelector('.group-close-label').textContent =
+    `Close all ${count} ${count === 1 ? 'tab' : 'tabs'}`;
+  closeBtn.addEventListener('click', async () => {
+    if (count > 1 && !confirm(`Close all ${count} tabs in "${info.label}"?`)) return;
     const ids = items.map((t) => t.id).filter((id) => Number.isInteger(id));
     await chrome.tabs.remove(ids);
     await reload();
-    toast(`Closed ${ids.length} tabs`);
+    toast(`Closed ${ids.length} tab${ids.length === 1 ? '' : 's'}`);
   });
 
   return node;
 }
 
-function renderTab(t, groupInfo) {
+function renderTab(t) {
   const node = tpl.tab.content.firstElementChild.cloneNode(true);
   node.dataset.tabId = t.id;
-  node.style.setProperty('--tab-hue', hashHue(t.rootDomain || t.host || t.url));
 
   node.querySelector('.tab-favicon').src = resolveFavicon(t);
   node.querySelector('.tab-title').textContent = t.title || t.url;
-  node.querySelector('.tab-domain').textContent = t.host || '—';
-
-  // big watermark emoji from the parent category (subtle, in the banner corner)
-  const emojiEl = node.querySelector('.tab-emoji');
-  if (emojiEl && groupInfo?.emoji) emojiEl.textContent = groupInfo.emoji;
-
-  // window badge in non-window grouping modes
-  if (state.settings.groupMode !== 'window') {
-    const winBadge = node.querySelector('.tab-window-badge');
-    winBadge.textContent = `W${t.windowId}`;
-    winBadge.hidden = false;
-  }
+  node.title = `${t.title || ''}\n${t.url}`;
 
   const dupeList = state.dupeIndex.get(t.dupeKey) || [];
   if (dupeList.length > 1) {
     node.classList.add('duplicate');
-    const ribbon = node.querySelector('.tab-dupe-ribbon');
+    const dupe = node.querySelector('.tab-dupe');
     node.querySelector('.tab-dupe-count').textContent = dupeList.length;
-    ribbon.hidden = false;
+    dupe.hidden = false;
   }
 
-  // activate (switch) on click
   node.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
     activateTab(t);
@@ -313,14 +341,13 @@ async function activateTab(t) {
 }
 
 // ---------------------------------------------------------------------------
-// Dedupe
+// Bulk actions
 // ---------------------------------------------------------------------------
 
 async function closeDuplicates() {
   const toClose = [];
   for (const arr of state.dupeIndex.values()) {
     if (arr.length <= 1) continue;
-    // Prefer keeping pinned tabs; otherwise keep the oldest (smallest id).
     const sorted = [...arr].sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return a.id - b.id;
@@ -337,6 +364,15 @@ async function closeDuplicates() {
   toast(`Closed ${toClose.length} duplicate${toClose.length === 1 ? '' : 's'}`);
 }
 
+async function closeEverything() {
+  const ids = state.tabs.map((t) => t.id).filter((id) => Number.isInteger(id));
+  if (ids.length === 0) return;
+  if (!confirm(`Close all ${ids.length} open tabs across every window?`)) return;
+  await chrome.tabs.remove(ids);
+  await reload();
+  toast(`Closed ${ids.length} tabs`);
+}
+
 // ---------------------------------------------------------------------------
 // Misc helpers
 // ---------------------------------------------------------------------------
@@ -344,7 +380,7 @@ async function closeDuplicates() {
 function updateAIStatusBadge() {
   const enabled = !!state.settings?.llm?.enabled;
   els.aiStatusValue.textContent = enabled ? 'on' : 'off';
-  els.aiStatusValue.style.color = enabled ? 'var(--success)' : 'var(--text-mute)';
+  els.aiStatusValue.style.color = enabled ? '#0ea5e9' : 'var(--text-mute)';
 }
 
 function openOptions() {
@@ -357,23 +393,6 @@ function debounce(fn, wait) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), wait);
   };
-}
-
-/**
- * Hash any string into a deterministic hue (0–359).
- * Used so the same domain / category always shows the same color.
- * Tuned to skip ugly olive/grey-green territory by re-scaling into
- * the more vibrant 0–55 + 180–360 range.
- */
-function hashHue(str) {
-  let h = 5381;
-  const s = String(str || '');
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  }
-  const raw = Math.abs(h) % 305; // 0..304
-  // Map 0..304 onto two pleasant arcs: [0..55] and [180..359]
-  return raw < 55 ? raw : (raw - 55) + 180;
 }
 
 let toastHost;

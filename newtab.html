@@ -8,23 +8,11 @@
 </head>
 <body>
   <div class="app">
+    <!-- Compact top bar: search + actions, sits in the top-right corner -->
     <header class="topbar">
-      <div class="brand">
-        <div class="logo">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-            <path d="M3 5a2 2 0 0 1 2-2h6v8H3V5zm10-2h6a2 2 0 0 1 2 2v3h-8V3zM3 13h8v8H5a2 2 0 0 1-2-2v-6zm10-3h8v9a2 2 0 0 1-2 2h-6V10z"
-                  fill="currentColor"/>
-          </svg>
-        </div>
-        <div>
-          <h1>Smart New Tab</h1>
-          <p class="brand-sub" id="brand-sub">Loading your open tabs…</p>
-        </div>
-      </div>
-
-      <div class="topbar-right">
+      <div class="topbar-actions">
         <div class="search">
-          <input id="search-input" type="text" placeholder="Search title, URL, or domain…" autocomplete="off">
+          <input id="search-input" type="text" placeholder="Search…" autocomplete="off">
           <kbd>/</kbd>
         </div>
         <button class="icon-btn" id="refresh-btn" title="Refresh">
@@ -36,22 +24,30 @@
       </div>
     </header>
 
-    <section class="stats" id="stats-row">
-      <div class="stat-card stat-total"><span class="stat-label">Tabs</span><span class="stat-value" id="stat-tabs">–</span></div>
-      <div class="stat-card stat-windows"><span class="stat-label">Windows</span><span class="stat-value" id="stat-windows">–</span></div>
-      <div class="stat-card stat-domains"><span class="stat-label">Domains</span><span class="stat-value" id="stat-domains">–</span></div>
-      <div class="stat-card stat-dupes"><span class="stat-label">Duplicates</span><span class="stat-value" id="stat-dupes">–</span></div>
+    <!-- Greeting -->
+    <section class="hero">
+      <h1 class="greeting" id="greeting">Hello</h1>
+      <p class="hero-date" id="hero-date"></p>
+    </section>
 
-      <div class="actions">
-        <button class="primary-btn" id="dedupe-btn">
-          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 7h-3V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM5 14V5h9v2H9a2 2 0 0 0-2 2v5H5zm14 6H9V9h10v11z"/></svg>
-          Close duplicates
-        </button>
-        <select id="group-mode" class="select" title="Grouping mode">
-          <option value="category">Group by category</option>
-          <option value="domain">Group by domain</option>
-          <option value="window">Group by window</option>
+    <!-- Section header: "Open tabs" + summary + bulk actions -->
+    <section class="open-tabs-header">
+      <div class="oth-left">
+        <h2 class="oth-title">Open tabs</h2>
+        <select id="group-mode" class="select-quiet" title="Grouping mode">
+          <option value="domain">by site</option>
+          <option value="category">by category</option>
+          <option value="window">by window</option>
         </select>
+      </div>
+      <div class="oth-right">
+        <span class="oth-stat" id="summary-stat">—</span>
+        <button class="pill-btn pill-warn" id="dedupe-btn" hidden>
+          <span id="dedupe-count">0</span> duplicates
+        </button>
+        <button class="pill-btn pill-danger" id="close-all-btn">
+          Close all <span id="total-tab-count">0</span> tabs
+        </button>
       </div>
     </section>
 
@@ -74,46 +70,38 @@
 
   <template id="group-template">
     <section class="group">
-      <span class="group-accent" aria-hidden="true"></span>
       <header class="group-head">
-        <div class="group-title">
-          <span class="group-emoji"></span>
-          <h2 class="group-name"></h2>
-          <span class="group-count"></span>
-        </div>
-        <div class="group-tools">
-          <button class="link-btn group-collapse" title="Collapse">▾</button>
-          <button class="link-btn group-close-all" title="Close all in this group">Close all</button>
+        <div class="group-title-row">
+          <h3 class="group-name"></h3>
+          <span class="group-pill"><span class="group-count"></span><span class="group-count-label"> tabs open</span></span>
         </div>
       </header>
-      <div class="group-body">
-        <ul class="tab-grid"></ul>
-      </div>
+      <ul class="tab-list"></ul>
+      <footer class="group-foot">
+        <button class="group-close-all">
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+          <span class="group-close-label">Close all tabs</span>
+        </button>
+      </footer>
     </section>
   </template>
 
   <template id="tab-template">
-    <li class="tab-card" tabindex="0">
-      <div class="tab-banner">
-        <div class="tab-banner-overlay"></div>
-        <span class="tab-emoji" aria-hidden="true"></span>
-        <img class="tab-favicon" alt="" loading="lazy">
-        <span class="tab-dupe-ribbon" hidden>×<span class="tab-dupe-count"></span></span>
-        <div class="tab-actions">
-          <button class="icon-btn tab-bookmark" title="Bookmark">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>
-          </button>
-          <button class="icon-btn tab-close" title="Close">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
+    <li class="tab" tabindex="0">
+      <img class="tab-favicon" alt="" loading="lazy">
+      <div class="tab-text">
+        <span class="tab-title"></span>
+        <span class="tab-dupe" hidden>×<span class="tab-dupe-count"></span></span>
       </div>
-      <div class="tab-body">
-        <div class="tab-title"></div>
-        <div class="tab-sub">
-          <span class="tab-domain"></span>
-          <span class="tab-window-badge" hidden></span>
-        </div>
+      <div class="tab-actions">
+        <button class="tab-icon-btn tab-bookmark" title="Bookmark">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>
+        </button>
+        <button class="tab-icon-btn tab-close" title="Close">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
       </div>
     </li>
   </template>

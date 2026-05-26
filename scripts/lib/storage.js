@@ -3,7 +3,7 @@
  */
 
 export const DEFAULT_SETTINGS = {
-  groupMode: 'category', // 'category' | 'domain' | 'window'
+  groupMode: 'domain', // 'domain' | 'category' | 'window'
   showInternalPages: false,
   llm: {
     enabled: false,
