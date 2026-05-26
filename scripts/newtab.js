@@ -12,6 +12,7 @@ const els = {
   heroDate: document.getElementById('hero-date'),
 
   search: document.getElementById('search-input'),
+  google: document.getElementById('google-btn'),
   refresh: document.getElementById('refresh-btn'),
   settings: document.getElementById('settings-btn'),
 
@@ -66,6 +67,14 @@ function bindEvents() {
   });
   els.refresh.addEventListener('click', () => reload());
   els.settings.addEventListener('click', openOptions);
+  els.google.addEventListener('click', (e) => {
+    // Shift / cmd-click → open in a new tab so the dashboard stays.
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      window.open('https://www.google.com/', '_blank', 'noopener');
+    } else {
+      window.location.href = 'https://www.google.com/';
+    }
+  });
   els.openOptions.addEventListener('click', (e) => { e.preventDefault(); openOptions(); });
 
   els.groupMode.addEventListener('change', async () => {
