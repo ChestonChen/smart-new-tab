@@ -1,4 +1,4 @@
-import { fetchAllTabs, indexByDupeKey, resolveFavicon } from './lib/tabs.js';
+import { fetchAllTabs, indexByDupeKey, mergeDuplicates, resolveFavicon } from './lib/tabs.js';
 import {
   categorizeHeuristic,
   applyLLMOverrides,
@@ -130,7 +130,14 @@ async function reload() {
   });
   state.tabs = tabs;
   state.dupeIndex = indexByDupeKey(tabs);
-  state.groups = await buildGroups(tabs);
+
+  // In "by window" mode we want the user to see each window's
+  // contents verbatim, so we skip de-duplication there. In all
+  // other modes we collapse same-URL tabs into a single row that
+  // carries the full id list — clicking × closes one at a time.
+  const mode = state.settings.groupMode || 'domain';
+  const tabsForGroups = mode === 'window' ? tabs : mergeDuplicates(tabs);
+  state.groups = await buildGroups(tabsForGroups);
 
   updateSummary();
   render();
@@ -269,15 +276,18 @@ function renderGroup({ info, items }) {
   const list = node.querySelector('.tab-list');
   for (const t of items) list.appendChild(renderTab(t));
 
+  // For the bottom "Close all N tabs" button: N counts every
+  // underlying tab (including dupes inside merged rows), so the
+  // label matches the real number of tabs that will disappear.
+  const allIds = items.flatMap((t) => t._dupeIds || [t.id]).filter(Number.isInteger);
   const closeBtn = node.querySelector('.group-close-all');
   closeBtn.querySelector('.group-close-label').textContent =
-    `Close all ${count} ${count === 1 ? 'tab' : 'tabs'}`;
+    `Close all ${allIds.length} ${allIds.length === 1 ? 'tab' : 'tabs'}`;
   closeBtn.addEventListener('click', async () => {
-    if (count > 1 && !confirm(`Close all ${count} tabs in "${info.label}"?`)) return;
-    const ids = items.map((t) => t.id).filter((id) => Number.isInteger(id));
-    await chrome.tabs.remove(ids);
+    if (allIds.length > 1 && !confirm(`Close all ${allIds.length} tabs in "${info.label}"?`)) return;
+    await chrome.tabs.remove(allIds);
     await reload();
-    toast(`Closed ${ids.length} tab${ids.length === 1 ? '' : 's'}`);
+    toast(`Closed ${allIds.length} tab${allIds.length === 1 ? '' : 's'}`);
   });
 
   return node;
@@ -291,11 +301,17 @@ function renderTab(t) {
   node.querySelector('.tab-title').textContent = t.title || t.url;
   node.title = `${t.title || ''}\n${t.url}`;
 
-  const dupeList = state.dupeIndex.get(t.dupeKey) || [];
-  if (dupeList.length > 1) {
+  // How many real tabs does this row represent?
+  // In merged modes (`by site` / `by category`), a row can stand
+  // for N duplicates and _dupeCount > 1.
+  // In window mode (no merging), we still show a badge when the
+  // same URL exists in another window, but the row itself is
+  // exactly one tab.
+  const dupeCount = t._dupeCount || (state.dupeIndex.get(t.dupeKey)?.length || 1);
+  if (dupeCount > 1) {
     node.classList.add('duplicate');
     const dupe = node.querySelector('.tab-dupe');
-    node.querySelector('.tab-dupe-count').textContent = dupeList.length;
+    node.querySelector('.tab-dupe-count').textContent = dupeCount;
     dupe.hidden = false;
   }
 
@@ -310,12 +326,30 @@ function renderTab(t) {
     }
   });
 
-  node.querySelector('.tab-close').addEventListener('click', async (e) => {
+  const closeBtn = node.querySelector('.tab-close');
+  closeBtn.title = dupeCount > 1
+    ? `Close 1 of ${dupeCount} (${dupeCount - 1} will remain)`
+    : 'Close tab';
+  closeBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    await chrome.tabs.remove(t.id);
-    node.style.transition = 'opacity .15s';
-    node.style.opacity = '0';
-    setTimeout(reload, 150);
+    const idToClose = pickIdToClose(t);
+    await chrome.tabs.remove(idToClose);
+    // Only fade the row out when it's actually disappearing.
+    // If there are still copies left, the row stays and the badge
+    // count will be updated by the next reload — fading the row
+    // would mislead the user into thinking everything closed.
+    if (dupeCount > 1) {
+      const badge = node.querySelector('.tab-dupe-count');
+      if (badge) badge.textContent = dupeCount - 1;
+      closeBtn.title = dupeCount - 1 > 1
+        ? `Close 1 of ${dupeCount - 1} (${dupeCount - 2} will remain)`
+        : 'Close tab';
+      setTimeout(reload, 100);
+    } else {
+      node.style.transition = 'opacity .15s';
+      node.style.opacity = '0';
+      setTimeout(reload, 150);
+    }
   });
 
   node.querySelector('.tab-bookmark').addEventListener('click', async (e) => {
@@ -329,6 +363,25 @@ function renderTab(t) {
   });
 
   return node;
+}
+
+/**
+ * Decide which underlying tab id to actually close when the user
+ * clicks × on a row that represents multiple duplicates.
+ *
+ * Strategy: keep the representative (the rep is at index 0 of
+ * _dupeIds because mergeDuplicates sorts it there) until last,
+ * and remove the most recently opened duplicate first. That way
+ * the user can repeatedly click × to peel off clones, and the
+ * tab they originally opened survives.
+ */
+function pickIdToClose(t) {
+  const ids = t._dupeIds && t._dupeIds.length ? t._dupeIds : [t.id];
+  if (ids.length === 1) return ids[0];
+  const repId = ids[0];
+  // Prefer non-rep ids, highest first (= newest dup).
+  const others = ids.slice(1);
+  return others.length > 0 ? Math.max(...others) : repId;
 }
 
 async function activateTab(t) {

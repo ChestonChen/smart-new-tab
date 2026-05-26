@@ -115,6 +115,41 @@ export function indexByDupeKey(tabs) {
 }
 
 /**
+ * Collapse tabs that point at the same logical URL into a single
+ * "merged tab" so the dashboard displays one row per unique URL.
+ * The returned object carries the full list of underlying tab ids
+ * sorted so that the representative (the one we keep until last)
+ * comes first.
+ *
+ * Representative selection: pinned tabs win, then smallest id (=
+ * oldest, since Chrome ids are monotonic per session). That way we
+ * keep the user's "original" tab and close the redundant clones.
+ *
+ * @returns {Array<MergedTab>}
+ * @typedef {NormalizedTab & {
+ *   _dupeIds: number[],   // every underlying tab id, rep first
+ *   _dupeCount: number,   // shortcut for _dupeIds.length
+ * }} MergedTab
+ */
+export function mergeDuplicates(tabs) {
+  const byKey = indexByDupeKey(tabs);
+  const merged = [];
+  for (const arr of byKey.values()) {
+    const sorted = [...arr].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return a.id - b.id;
+    });
+    const rep = sorted[0];
+    merged.push({
+      ...rep,
+      _dupeIds: sorted.map((t) => t.id),
+      _dupeCount: sorted.length,
+    });
+  }
+  return merged;
+}
+
+/**
  * Resolve a favicon URL we can actually display.
  * - If tab gave us one, use it.
  * - Otherwise hit the `_favicon` permission endpoint (works for any URL,
