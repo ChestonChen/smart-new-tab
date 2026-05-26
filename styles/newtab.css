@@ -134,25 +134,29 @@ body::before {
   inset: -10vmax;
   z-index: -1;
   background:
-    /* high-light blobs on top */
-    radial-gradient(54vmax 40vmax at 6% -6%,    rgba(167, 139, 250, 0.70), transparent 55%),
-    radial-gradient(46vmax 38vmax at 102% 6%,   rgba(236, 72, 153, 0.55),  transparent 58%),
-    radial-gradient(50vmax 42vmax at -4% 102%,  rgba(56, 189, 248, 0.48),  transparent 58%),
-    radial-gradient(56vmax 44vmax at 104% 104%, rgba(251, 113, 133, 0.50), transparent 58%),
-    /* diagonal pastel under-layer */
-    linear-gradient(135deg, #EDE3FF 0%, #FDE7F4 38%, #FFE4ED 62%, #DAEBFF 100%);
-  filter: saturate(118%);
+    /* central highlight keeps the middle from going muddy */
+    radial-gradient(34vmax 26vmax at 50% 48%,  rgba(255, 255, 255, 0.42), transparent 62%),
+    /* four corner blobs — bigger, more saturated, pulled slightly inward
+       so they meet and form continuous color bands */
+    radial-gradient(60vmax 44vmax at 14% -4%,  rgba(139, 92, 246, 0.95), transparent 52%),
+    radial-gradient(54vmax 42vmax at 96% 6%,   rgba(236, 72, 153, 0.78), transparent 55%),
+    radial-gradient(58vmax 44vmax at 4% 96%,   rgba(56, 189, 248, 0.68), transparent 55%),
+    radial-gradient(62vmax 46vmax at 96% 100%, rgba(251, 113, 133, 0.72), transparent 55%),
+    /* diagonal pastel under-layer with a deeper palette */
+    linear-gradient(135deg, #D6BEFB 0%, #FAC9E3 35%, #FFCBD9 60%, #B6D6F9 100%);
+  filter: saturate(125%);
   animation: drift 24s ease-in-out infinite alternate;
 }
 @media (prefers-color-scheme: dark) {
   body::before {
     background:
-      radial-gradient(54vmax 40vmax at 6% -6%,    rgba(124, 92, 255, 0.65), transparent 55%),
-      radial-gradient(46vmax 38vmax at 102% 6%,   rgba(236, 72, 153, 0.45), transparent 58%),
-      radial-gradient(50vmax 42vmax at -4% 102%,  rgba(56, 189, 248, 0.38), transparent 58%),
-      radial-gradient(56vmax 44vmax at 104% 104%, rgba(251, 113, 133, 0.40), transparent 58%),
-      linear-gradient(135deg, #1B0E40 0%, #2A1248 38%, #2D0F3F 62%, #0F1C44 100%);
-    filter: saturate(115%);
+      radial-gradient(34vmax 26vmax at 50% 48%,  rgba(70, 50, 120, 0.32), transparent 62%),
+      radial-gradient(60vmax 44vmax at 14% -4%,  rgba(124, 92, 255, 0.85), transparent 52%),
+      radial-gradient(54vmax 42vmax at 96% 6%,   rgba(236, 72, 153, 0.62), transparent 55%),
+      radial-gradient(58vmax 44vmax at 4% 96%,   rgba(56, 189, 248, 0.55), transparent 55%),
+      radial-gradient(62vmax 46vmax at 96% 100%, rgba(251, 113, 133, 0.55), transparent 55%),
+      linear-gradient(135deg, #1D0E48 0%, #340F4E 35%, #391146 60%, #0B1C50 100%);
+    filter: saturate(120%);
   }
 }
 @keyframes drift {
@@ -374,6 +378,10 @@ body::before {
 }
 
 .group {
+  /* JS sets a stable hue per group (hash of the site name).
+     Falls back to brand purple. */
+  --group-hue: 268;
+
   background: var(--surface);
   border: 1px solid var(--border);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -387,20 +395,41 @@ body::before {
   overflow: hidden;
   position: relative;
 }
+/* The top of every card carries a soft tinted wash whose hue comes from
+   the site name — same site = same color across reloads, so YouTube,
+   Lark Docs, GitHub etc each have their own quiet identity. The wash
+   fades out by ~36% of the card height so the tab list stays neutral. */
 .group::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, transparent 30%);
-  opacity: 0.7;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, transparent 28%),
+    linear-gradient(180deg,
+      hsla(var(--group-hue), 85%, 72%, 0.32) 0%,
+      hsla(var(--group-hue), 85%, 72%, 0.10) 22%,
+      transparent 36%);
+}
+@media (prefers-color-scheme: dark) {
+  .group::before {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 28%),
+      linear-gradient(180deg,
+        hsla(var(--group-hue), 80%, 60%, 0.28) 0%,
+        hsla(var(--group-hue), 80%, 60%, 0.08) 24%,
+        transparent 38%);
+  }
 }
 .group:hover {
   background: var(--surface-hover);
-  box-shadow: var(--shadow-lift);
   transform: translateY(-3px);
-  border-color: var(--border-strong);
+  border-color: hsla(var(--group-hue), 70%, 60%, 0.42);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 18px 40px -12px hsla(var(--group-hue), 70%, 55%, 0.30),
+    0 4px 12px -4px hsla(var(--group-hue), 80%, 60%, 0.18);
 }
 @keyframes pop {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
@@ -436,12 +465,19 @@ body::before {
   gap: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--pill-fg);
-  background: var(--pill-bg);
-  border: 1px solid var(--pill-border);
+  color: hsl(var(--group-hue), 55%, 36%);
+  background: hsla(var(--group-hue), 85%, 92%, 0.7);
+  border: 1px solid hsla(var(--group-hue), 65%, 70%, 0.30);
   padding: 2px 10px;
   border-radius: var(--radius-pill);
   flex-shrink: 0;
+}
+@media (prefers-color-scheme: dark) {
+  .group-pill {
+    color: hsl(var(--group-hue), 70%, 80%);
+    background: hsla(var(--group-hue), 70%, 60%, 0.22);
+    border-color: hsla(var(--group-hue), 70%, 60%, 0.35);
+  }
 }
 
 .tab-list {

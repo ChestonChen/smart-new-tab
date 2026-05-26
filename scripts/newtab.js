@@ -383,6 +383,9 @@ function matchTab(t, q) {
 function renderGroup({ info, items }) {
   const node = tpl.group.content.firstElementChild.cloneNode(true);
   node.dataset.groupId = info.id;
+  // Stable per-group hue so the same site keeps the same accent color
+  // across reloads and across windows.
+  node.style.setProperty('--group-hue', hashHue(info.label));
   node.querySelector('.group-name').textContent = info.label;
 
   const count = items.length;
@@ -833,6 +836,21 @@ function debounce(fn, wait) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), wait);
   };
+}
+
+/**
+ * Map an arbitrary string (e.g. a site name) to a stable hue in [0, 360).
+ * Two calls with the same input always return the same hue, so a site
+ * keeps the same accent color across reloads. Implementation is a
+ * classic djb2-style rolling hash, sampled mod 360.
+ */
+function hashHue(s) {
+  let h = 5381;
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % 360;
 }
 
 let toastHost;
