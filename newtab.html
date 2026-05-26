@@ -74,6 +74,7 @@
 
   <template id="group-template">
     <section class="group">
+      <span class="group-accent" aria-hidden="true"></span>
       <header class="group-head">
         <div class="group-title">
           <span class="group-emoji"></span>
@@ -86,29 +87,33 @@
         </div>
       </header>
       <div class="group-body">
-        <ul class="tab-list"></ul>
+        <ul class="tab-grid"></ul>
       </div>
     </section>
   </template>
 
   <template id="tab-template">
-    <li class="tab" tabindex="0">
-      <img class="favicon" alt="" loading="lazy">
-      <div class="tab-meta">
+    <li class="tab-card" tabindex="0">
+      <div class="tab-banner">
+        <div class="tab-banner-overlay"></div>
+        <span class="tab-emoji" aria-hidden="true"></span>
+        <img class="tab-favicon" alt="" loading="lazy">
+        <span class="tab-dupe-ribbon" hidden>×<span class="tab-dupe-count"></span></span>
+        <div class="tab-actions">
+          <button class="icon-btn tab-bookmark" title="Bookmark">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>
+          </button>
+          <button class="icon-btn tab-close" title="Close">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tab-body">
         <div class="tab-title"></div>
         <div class="tab-sub">
           <span class="tab-domain"></span>
           <span class="tab-window-badge" hidden></span>
-          <span class="tab-dupe-badge" hidden>×<span class="tab-dupe-count"></span></span>
         </div>
-      </div>
-      <div class="tab-actions">
-        <button class="icon-btn tab-bookmark" title="Bookmark">
-          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>
-        </button>
-        <button class="icon-btn tab-close" title="Close">
-          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
       </div>
     </li>
   </template>

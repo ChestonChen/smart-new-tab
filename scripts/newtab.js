@@ -173,7 +173,8 @@ function updateStats() {
   let dupes = 0;
   for (const arr of state.dupeIndex.values()) if (arr.length > 1) dupes += arr.length - 1;
   els.statDupes.textContent = dupes;
-  els.statDupes.dataset.zero = dupes === 0 ? 'true' : 'false';
+  const dupesCard = els.statDupes.closest('.stat-card');
+  if (dupesCard) dupesCard.dataset.zero = dupes === 0 ? 'true' : 'false';
 
   els.brandSub.textContent =
     tabs.length === 0
@@ -219,12 +220,13 @@ function matchTab(t, q) {
 function renderGroup({ info, items }) {
   const node = tpl.group.content.firstElementChild.cloneNode(true);
   node.dataset.groupId = info.id;
+  node.style.setProperty('--group-hue', hashHue(info.id));
   node.querySelector('.group-emoji').textContent = info.emoji || '📁';
   node.querySelector('.group-name').textContent = info.label;
   node.querySelector('.group-count').textContent = items.length;
 
-  const list = node.querySelector('.tab-list');
-  for (const t of items) list.appendChild(renderTab(t));
+  const list = node.querySelector('.tab-grid');
+  for (const t of items) list.appendChild(renderTab(t, info));
 
   node.querySelector('.group-collapse').addEventListener('click', () => {
     node.classList.toggle('collapsed');
@@ -240,27 +242,32 @@ function renderGroup({ info, items }) {
   return node;
 }
 
-function renderTab(t) {
+function renderTab(t, groupInfo) {
   const node = tpl.tab.content.firstElementChild.cloneNode(true);
   node.dataset.tabId = t.id;
+  node.style.setProperty('--tab-hue', hashHue(t.rootDomain || t.host || t.url));
 
-  node.querySelector('.favicon').src = resolveFavicon(t);
+  node.querySelector('.tab-favicon').src = resolveFavicon(t);
   node.querySelector('.tab-title').textContent = t.title || t.url;
   node.querySelector('.tab-domain').textContent = t.host || '—';
+
+  // big watermark emoji from the parent category (subtle, in the banner corner)
+  const emojiEl = node.querySelector('.tab-emoji');
+  if (emojiEl && groupInfo?.emoji) emojiEl.textContent = groupInfo.emoji;
 
   // window badge in non-window grouping modes
   if (state.settings.groupMode !== 'window') {
     const winBadge = node.querySelector('.tab-window-badge');
-    winBadge.textContent = `w${t.windowId}`;
+    winBadge.textContent = `W${t.windowId}`;
     winBadge.hidden = false;
   }
 
   const dupeList = state.dupeIndex.get(t.dupeKey) || [];
   if (dupeList.length > 1) {
     node.classList.add('duplicate');
-    const badge = node.querySelector('.tab-dupe-badge');
+    const ribbon = node.querySelector('.tab-dupe-ribbon');
     node.querySelector('.tab-dupe-count').textContent = dupeList.length;
-    badge.hidden = false;
+    ribbon.hidden = false;
   }
 
   // activate (switch) on click
@@ -350,6 +357,23 @@ function debounce(fn, wait) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), wait);
   };
+}
+
+/**
+ * Hash any string into a deterministic hue (0–359).
+ * Used so the same domain / category always shows the same color.
+ * Tuned to skip ugly olive/grey-green territory by re-scaling into
+ * the more vibrant 0–55 + 180–360 range.
+ */
+function hashHue(str) {
+  let h = 5381;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  const raw = Math.abs(h) % 305; // 0..304
+  // Map 0..304 onto two pleasant arcs: [0..55] and [180..359]
+  return raw < 55 ? raw : (raw - 55) + 180;
 }
 
 let toastHost;
