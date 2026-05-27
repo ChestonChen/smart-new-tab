@@ -13,3 +13,6 @@ dist/
 # Local secrets (just in case)
 .env
 .env.local
+
+# cursor-agent stray logs when run from project root
+log/

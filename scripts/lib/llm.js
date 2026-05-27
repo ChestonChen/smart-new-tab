@@ -64,14 +64,22 @@ async function callProvider(cfg, compactTabs) {
 
 async function callOpenAI(cfg, userMsg) {
   if (!cfg.apiKey) throw new Error('Missing OpenAI apiKey');
-  const endpoint = cfg.endpoint || 'https://api.openai.com/v1/chat/completions';
-  const model = cfg.model || 'gpt-4o-mini';
+  return callOpenAICompatible(cfg, userMsg, {
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    model: 'gpt-4o-mini',
+    requireApiKey: true,
+  });
+}
+
+async function callOpenAICompatible(cfg, userMsg, defaults) {
+  const endpoint = cfg.endpoint || defaults.endpoint;
+  const model = cfg.model || defaults.model;
+  const headers = { 'Content-Type': 'application/json' };
+  if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
+  else if (defaults.requireApiKey) throw new Error('Missing apiKey');
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model,
       temperature: 0.2,
@@ -82,7 +90,7 @@ async function callOpenAI(cfg, userMsg) {
       ],
     }),
   });
-  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '';
 }
@@ -134,8 +142,13 @@ async function callOllama(cfg, userMsg) {
 
 async function callCustom(cfg, userMsg) {
   if (!cfg.endpoint) throw new Error('Missing custom endpoint');
-  // OpenAI-compatible shape by default.
-  return callOpenAI({ ...cfg, endpoint: cfg.endpoint }, userMsg);
+  // OpenAI-compatible shape; apiKey is optional for local proxies
+  // (e.g. cursor-llm-proxy) that don't need a key.
+  return callOpenAICompatible(cfg, userMsg, {
+    endpoint: cfg.endpoint,
+    model: cfg.model || 'sonnet-4',
+    requireApiKey: false,
+  });
 }
 
 function parseLLMResponse(text, tabs) {

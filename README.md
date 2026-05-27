@@ -75,9 +75,35 @@ In Settings → *AI grouping*, toggle on and fill the provider config:
 | OpenAI    | `https://api.openai.com/v1/chat/completions`  | `gpt-4o-mini`                | required         |
 | Anthropic | `https://api.anthropic.com/v1/messages`       | `claude-3-5-haiku-latest`    | required         |
 | Ollama    | `http://localhost:11434/api/chat`             | `llama3.2` / `qwen2.5`       | not needed       |
-| Custom    | any OpenAI-compatible URL                     | depends                      | usually required |
+| Custom    | any OpenAI-compatible URL                     | depends                      | optional         |
 
 **Privacy contract:** only the `host` and the trimmed `title` of each tab are transmitted. Full URL, query string, cookies, and page content never leave your machine. If the LLM request fails, the dashboard silently falls back to the heuristic groups.
+
+### Use Cursor as your local LLM (no API key)
+
+If you already pay for Cursor, you can route AI grouping through your
+existing Cursor subscription via the bundled
+[`cursor-llm-proxy`](tools/cursor-llm-proxy/) — a 200-line Node script
+that exposes an OpenAI-compatible endpoint on `127.0.0.1:8788` and
+fulfils every request by shelling out to `cursor-agent`.
+
+```bash
+# one-time
+curl https://cursor.com/install -fsSL | bash    # install cursor-agent
+cursor-agent login                              # auth with your Cursor account
+
+# each session (or add to ~/.zshrc to auto-start)
+bash tools/cursor-llm-proxy/start.sh
+```
+
+Then in the extension's options page set:
+
+- **Provider**: `Custom`
+- **Endpoint**: `http://127.0.0.1:8788/v1/chat/completions`
+- **Model**: `sonnet-4`
+- **API key**: (blank)
+
+See [`tools/cursor-llm-proxy/README.md`](tools/cursor-llm-proxy/README.md) for details, launchd auto-start, performance caveats, and troubleshooting.
 
 ### Themes & stale tabs
 
@@ -119,7 +145,14 @@ smart-new-tab/
 │       ├── themes.js              theme palette definitions
 │       └── command-palette.js     Cmd+K palette UI + dispatcher
 ├── icons/                         icon.svg + generated PNGs
-└── tools/generate-icons.sh        regenerate PNGs (macOS, no deps)
+└── tools/
+    ├── generate-icons.sh          regenerate PNGs (macOS, no deps)
+    └── cursor-llm-proxy/          OpenAI-compatible proxy → cursor-agent CLI
+        ├── server.js              Node http server (no deps)
+        ├── start.sh               launcher (resolves node, exports PATH)
+        ├── install-launchd.sh     install / status / restart / uninstall
+        ├── com.smartnewtab.cursorproxy.plist
+        └── README.md
 ```
 
 After editing any file, visit `chrome://extensions` and click the reload (↻) icon on the Smart New Tab card.

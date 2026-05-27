@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for cursor-llm-proxy.
+
+  Install:
+    bash tools/cursor-llm-proxy/install-launchd.sh
+
+  Uninstall:
+    bash tools/cursor-llm-proxy/install-launchd.sh uninstall
+
+  The installer script templatizes __START_SH__ to the absolute path of
+  start.sh on this machine and copies the result to
+  ~/Library/LaunchAgents/com.smartnewtab.cursorproxy.plist.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.smartnewtab.cursorproxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__START_SH__</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>8788</string>
+        <key>MODEL</key>
+        <string>sonnet-4</string>
+        <key>WORKSPACE_DIR</key>
+        <string>__WORKSPACE_DIR__</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKSPACE_DIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__LOG_DIR__/cursor-llm-proxy.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG_DIR__/cursor-llm-proxy.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
