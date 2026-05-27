@@ -2,8 +2,6 @@
 
 > An Arc-inspired new tab dashboard for Chrome that **aggregates, groups, and de-duplicates every tab across every window** — so you can actually find things when you have 50+ tabs open.
 
-![preview placeholder](docs/preview.png)
-
 ## Why
 
 Browser tabs are where modern work happens, and they pile up fast. Smart New Tab replaces the blank new tab page with a single dashboard that tells you, at a glance:
