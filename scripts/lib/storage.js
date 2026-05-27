@@ -11,6 +11,10 @@ export const DEFAULT_SETTINGS = {
   // more than `staleDays` days. Disabled = no callout / no badges.
   staleEnabled: true,
   staleDays: 7,
+  // Bookmarks bar strip below the hero. Toggled by the bookmark icon
+  // in the topbar; default ON because users who go looking for it want
+  // it visible by default.
+  bookmarksBarVisible: true,
   // AI grouping is hardcoded to talk to the bundled cursor-llm-proxy.
   // The user can't change these from the options page; if the local
   // proxy isn't running, llm.js silently falls back to heuristic groups.

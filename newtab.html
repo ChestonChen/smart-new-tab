@@ -23,6 +23,9 @@
             <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
           </svg>
         </button>
+        <button class="icon-btn" id="bookmarks-btn" title="Show / hide bookmarks bar" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z"/></svg>
+        </button>
         <button class="icon-btn" id="refresh-btn" title="Refresh">
           <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 6V3L8 7l4 4V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-6z"/></svg>
         </button>
@@ -36,6 +39,22 @@
     <section class="hero">
       <h1 class="greeting" id="greeting">Hello</h1>
       <p class="hero-date" id="hero-date"></p>
+    </section>
+
+    <!-- Bookmarks bar: mirrors Chrome's bookmark bar so users don't have
+         to leave the new-tab page to reach their bookmarks. Toggled by
+         the bookmark button in the topbar; visibility is persisted. -->
+    <section class="bookmarks-bar" id="bookmarks-bar" hidden>
+      <header class="bookmarks-head">
+        <h3 class="bookmarks-title">Bookmarks</h3>
+        <span class="bookmarks-hint">From your Chrome Bookmarks Bar</span>
+      </header>
+      <div class="bookmarks-row" id="bookmarks-row"></div>
+      <div class="bookmarks-empty" id="bookmarks-empty" hidden>
+        <span>No bookmarks in your bar yet — drag a tab here or use </span>
+        <kbd>⌘</kbd><span>+</span><kbd>D</kbd>
+        <span> on any page.</span>
+      </div>
     </section>
 
     <!-- Workspaces: named snapshots of all open tabs -->

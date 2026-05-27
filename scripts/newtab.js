@@ -36,6 +36,12 @@ import {
   mergeAICache,
   clearAICache as clearAICacheDisk,
 } from './lib/ai-cache.js';
+import {
+  loadBookmarkBarChildren,
+  loadFolderChildren,
+  isFolder,
+  bookmarkFavicon,
+} from './lib/bookmarks.js';
 
 const els = {
   greeting: document.getElementById('greeting'),
@@ -43,8 +49,14 @@ const els = {
 
   search: document.getElementById('search-input'),
   google: document.getElementById('google-btn'),
+  bookmarksBtn: document.getElementById('bookmarks-btn'),
   refresh: document.getElementById('refresh-btn'),
   settings: document.getElementById('settings-btn'),
+
+  // Bookmarks bar (mirrors Chrome's bookmarks bar)
+  bookmarksSection: document.getElementById('bookmarks-bar'),
+  bookmarksRow: document.getElementById('bookmarks-row'),
+  bookmarksEmpty: document.getElementById('bookmarks-empty'),
 
   groupMode: document.getElementById('group-mode'),
   aiChip: document.getElementById('ai-chip'),
@@ -149,6 +161,14 @@ const state = {
   // + reopen, even reinstalls (until TTL kicks in). Daily use becomes 0-wait
   // because every previously-seen URL already has its label.
   aiOverridesByUrl: new Map(),
+  // Bookmarks Bar children (mirrors Chrome's "1" subtree, top level only).
+  // Sub-folder contents are fetched lazily when the user opens a folder
+  // dropdown. Refreshed on init + on chrome.bookmarks change events.
+  bookmarks: [],
+  // The currently-open bookmark folder dropdown's DOM node (or null).
+  // We track it so we can close on outside clicks / Esc without
+  // walking the DOM every keystroke.
+  openFolderDropdown: null,
 };
 
 // Command palette is mounted lazily on first Cmd+K.
@@ -182,6 +202,13 @@ async function init() {
   // Stamp today as an active day so we can compute the "X days
   // active" metric honestly. Fire-and-forget — never block UI on it.
   markActiveDay().then(renderImpact).catch(() => {});
+
+  // Bookmarks bar: apply persisted visibility, then fetch contents.
+  // Fire-and-forget — the strip is purely complementary and shouldn't
+  // delay the main board.
+  applyBookmarksVisibility();
+  refreshBookmarks();
+  registerBookmarkListeners();
 
   await reload();
   registerTabListeners();
@@ -231,6 +258,7 @@ function bindEvents() {
     reload();
   });
   els.settings.addEventListener('click', openOptions);
+  els.bookmarksBtn.addEventListener('click', toggleBookmarksBar);
   // Clicking the AI chip is the user's signal that they want a fresh
   // classification (e.g. after opening a bunch of new tabs). Disabled
   // while a request is already in flight or AI doesn't apply.
@@ -1249,6 +1277,306 @@ function renderPinned() {
     chip.appendChild(label);
     chip.addEventListener('click', () => activateTab(t));
     els.pinnedRow.appendChild(chip);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks bar strip
+// ---------------------------------------------------------------------------
+
+function applyBookmarksVisibility() {
+  const visible = state.settings.bookmarksBarVisible !== false;
+  els.bookmarksSection.hidden = !visible;
+  els.bookmarksBtn.setAttribute('aria-pressed', String(visible));
+  // Quietly mark the button as "active" when the bar is visible so the
+  // user can tell at a glance which mode they're in.
+  els.bookmarksBtn.classList.toggle('icon-btn-active', visible);
+}
+
+async function toggleBookmarksBar() {
+  const next = !(state.settings.bookmarksBarVisible !== false);
+  state.settings = { ...state.settings, bookmarksBarVisible: next };
+  try {
+    await saveSettings(state.settings);
+  } catch (err) {
+    console.warn('[smart-new-tab] failed to persist bookmarks visibility:', err);
+  }
+  applyBookmarksVisibility();
+  // If the user is opening the bar for the first time this session, kick
+  // off a refresh so they immediately see content even if init() raced.
+  if (next && state.bookmarks.length === 0) {
+    refreshBookmarks();
+  }
+  // Close any open folder dropdown when the whole bar collapses.
+  if (!next) closeFolderDropdown();
+}
+
+async function refreshBookmarks() {
+  // Close any open dropdown first — re-rendering the row would orphan
+  // its anchor element and the next click handler would target a node
+  // that's no longer in the DOM.
+  closeFolderDropdown();
+  state.bookmarks = await loadBookmarkBarChildren();
+  renderBookmarks();
+}
+
+function renderBookmarks() {
+  els.bookmarksRow.innerHTML = '';
+  if (state.bookmarks.length === 0) {
+    els.bookmarksEmpty.hidden = false;
+    els.bookmarksRow.hidden = true;
+    return;
+  }
+  els.bookmarksEmpty.hidden = true;
+  els.bookmarksRow.hidden = false;
+  for (const node of state.bookmarks) {
+    els.bookmarksRow.appendChild(renderBookmarkChip(node));
+  }
+}
+
+function renderBookmarkChip(node) {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'bm-chip';
+  chip.dataset.bmId = node.id;
+
+  if (isFolder(node)) {
+    chip.classList.add('bm-chip-folder');
+    chip.title = node.title;
+    chip.setAttribute('aria-haspopup', 'menu');
+    chip.setAttribute('aria-expanded', 'false');
+    const icon = document.createElement('span');
+    icon.className = 'bm-chip-folder-icon';
+    icon.textContent = '📁';
+    const label = document.createElement('span');
+    label.className = 'bm-chip-label';
+    label.textContent = node.title || 'Folder';
+    const caret = document.createElement('span');
+    caret.className = 'bm-chip-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    chip.append(icon, label, caret);
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Toggle: if this folder's dropdown is already open, close it.
+      if (state.openFolderDropdown?.dataset.bmFolderId === node.id) {
+        closeFolderDropdown();
+        return;
+      }
+      openFolderDropdown(node, chip);
+    });
+  } else {
+    chip.title = `${node.title}\n${node.url}`;
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = bookmarkFavicon(node.url);
+    img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
+    const label = document.createElement('span');
+    label.className = 'bm-chip-label';
+    label.textContent = node.title || node.url;
+    chip.append(img, label);
+    chip.addEventListener('click', (e) => openBookmark(node, e));
+    chip.addEventListener('auxclick', (e) => {
+      // Middle-click → new background tab. Match Chrome's bookmark bar.
+      if (e.button === 1) {
+        e.preventDefault();
+        openBookmark(node, { metaKey: true, preventDefault: () => {} });
+      }
+    });
+  }
+  return chip;
+}
+
+/**
+ * Open a bookmark following Chrome's conventional modifier semantics:
+ *   - plain click       → replace the new-tab page (window.location)
+ *   - Cmd/Ctrl click    → open in a new background tab
+ *   - Shift click       → open in a new window
+ *   - middle click      → open in a new background tab (handled above)
+ *
+ * URL validation is intentionally minimal — Chrome bookmarks can hold
+ * javascript:, file:, etc. and we shouldn't second-guess the user.
+ */
+function openBookmark(node, e) {
+  if (!node?.url) return;
+  if (e?.preventDefault) e.preventDefault();
+  closeFolderDropdown();
+  if (e?.shiftKey) {
+    chrome.windows.create({ url: node.url }).catch((err) => toast('Open failed: ' + err.message));
+    return;
+  }
+  if (e?.metaKey || e?.ctrlKey) {
+    chrome.tabs.create({ url: node.url, active: false }).catch((err) => toast('Open failed: ' + err.message));
+    return;
+  }
+  try {
+    window.location.href = node.url;
+  } catch (err) {
+    toast('Open failed: ' + err.message);
+  }
+}
+
+/**
+ * Build and mount an absolutely-positioned dropdown below the folder
+ * chip. Supports cascading navigation in place: clicking a sub-folder
+ * inside the dropdown swaps the panel content (with a breadcrumb back
+ * row) instead of stacking dropdowns sideways. Simpler to lay out and
+ * matches our touch-friendly Arc-style elsewhere.
+ */
+async function openFolderDropdown(folder, anchorBtn) {
+  closeFolderDropdown();
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'bm-dropdown';
+  dropdown.dataset.bmFolderId = folder.id;
+  dropdown.setAttribute('role', 'menu');
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  // Position: anchor under the chip, left-aligned by default. If the
+  // dropdown would overflow the right edge we right-align it instead.
+  document.body.appendChild(dropdown);
+  positionDropdown(dropdown, anchorBtn);
+
+  // Wire up close-on-outside-click + Esc *after* mount so the click
+  // that opened us doesn't immediately close us.
+  setTimeout(() => {
+    document.addEventListener('click', onDocClickToClose, { capture: true });
+    document.addEventListener('keydown', onDocEscToClose);
+    window.addEventListener('resize', closeFolderDropdown, { once: true });
+  }, 0);
+
+  state.openFolderDropdown = dropdown;
+  anchorBtn.setAttribute('aria-expanded', 'true');
+
+  // Render the folder's children. The path stack lets us implement
+  // "back" without re-querying the parent.
+  await renderDropdownLevel(dropdown, folder, [folder], anchorBtn);
+}
+
+async function renderDropdownLevel(dropdown, folder, pathStack, anchorBtn) {
+  dropdown.innerHTML = '';
+
+  // Breadcrumb / back row (only when we've descended past the root).
+  if (pathStack.length > 1) {
+    const head = document.createElement('div');
+    head.className = 'bm-dropdown-head';
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'bm-dropdown-back';
+    back.innerHTML = '<span aria-hidden="true">‹</span> Back';
+    back.addEventListener('click', () => {
+      const popped = pathStack.slice(0, -1);
+      renderDropdownLevel(dropdown, popped[popped.length - 1], popped, anchorBtn);
+    });
+    const crumb = document.createElement('span');
+    crumb.className = 'bm-dropdown-crumb';
+    crumb.textContent = folder.title || 'Folder';
+    head.append(back, crumb);
+    dropdown.appendChild(head);
+  }
+
+  const children = await loadFolderChildren(folder.id);
+  if (children.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'bm-dropdown-empty';
+    empty.textContent = 'Empty folder';
+    dropdown.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'bm-dropdown-list';
+  for (const node of children) {
+    const item = document.createElement('li');
+    item.className = 'bm-dropdown-item';
+    if (isFolder(node)) {
+      item.classList.add('bm-dropdown-item-folder');
+      item.innerHTML = `<span class="bm-dropdown-icon">📁</span><span class="bm-dropdown-title"></span><span class="bm-dropdown-chev" aria-hidden="true">›</span>`;
+      item.querySelector('.bm-dropdown-title').textContent = node.title || 'Folder';
+      item.addEventListener('click', () => {
+        renderDropdownLevel(dropdown, node, [...pathStack, node], anchorBtn);
+      });
+    } else {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.src = bookmarkFavicon(node.url);
+      img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
+      const title = document.createElement('span');
+      title.className = 'bm-dropdown-title';
+      title.textContent = node.title || node.url;
+      item.append(img, title);
+      item.title = `${node.title}\n${node.url}`;
+      item.addEventListener('click', (e) => openBookmark(node, e));
+      item.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          openBookmark(node, { metaKey: true, preventDefault: () => {} });
+        }
+      });
+    }
+    list.appendChild(item);
+  }
+  dropdown.appendChild(list);
+}
+
+function positionDropdown(dropdown, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const pad = 6;
+  // Measure the dropdown to know how to clamp it to the viewport. It's
+  // already in the DOM (just empty) so getBoundingClientRect works.
+  // We use min-width via CSS; height grows with content.
+  const ddWidth = Math.max(rect.width, 240);
+  dropdown.style.minWidth = ddWidth + 'px';
+  let left = rect.left;
+  if (left + ddWidth + pad > window.innerWidth) {
+    left = Math.max(pad, window.innerWidth - ddWidth - pad);
+  }
+  dropdown.style.left = left + 'px';
+  dropdown.style.top = (rect.bottom + pad) + 'px';
+}
+
+function onDocClickToClose(e) {
+  if (!state.openFolderDropdown) return;
+  if (e.target.closest('.bm-dropdown')) return;
+  // Clicks on a folder chip are already handled by their own listener
+  // (which toggles). Don't double-fire.
+  if (e.target.closest('.bm-chip-folder')) return;
+  closeFolderDropdown();
+}
+
+function onDocEscToClose(e) {
+  if (e.key === 'Escape') closeFolderDropdown();
+}
+
+function closeFolderDropdown() {
+  if (!state.openFolderDropdown) return;
+  const folderId = state.openFolderDropdown.dataset.bmFolderId;
+  state.openFolderDropdown.remove();
+  state.openFolderDropdown = null;
+  document.removeEventListener('click', onDocClickToClose, { capture: true });
+  document.removeEventListener('keydown', onDocEscToClose);
+  if (folderId) {
+    const chip = els.bookmarksRow.querySelector(`.bm-chip-folder[data-bm-id="${folderId}"]`);
+    if (chip) chip.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function registerBookmarkListeners() {
+  // Chrome fires distinct events for create/remove/change/move; we
+  // don't need finer granularity than "something changed → refresh".
+  // The refresh is cheap (one getChildren call on the bar) so this is
+  // fine to wire broadly.
+  const refresh = () => refreshBookmarks();
+  try {
+    chrome.bookmarks.onCreated.addListener(refresh);
+    chrome.bookmarks.onRemoved.addListener(refresh);
+    chrome.bookmarks.onChanged.addListener(refresh);
+    chrome.bookmarks.onMoved.addListener(refresh);
+  } catch (err) {
+    // Listeners are best-effort; the bar still updates on next dashboard load.
+    console.warn('[smart-new-tab] bookmark listener wiring failed:', err);
   }
 }
 
