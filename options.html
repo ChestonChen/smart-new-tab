@@ -31,6 +31,27 @@
     </section>
 
     <section class="card">
+      <h2>Theme</h2>
+      <p class="muted">Re-skins the dashboard backdrop and accent colors. Change applies instantly.</p>
+      <div class="theme-grid" id="theme-grid"></div>
+    </section>
+
+    <section class="card">
+      <h2>Stale-tab detection</h2>
+      <p class="muted">
+        Banner appears on the new tab page when tabs haven't been activated for the configured number of days. Pinned tabs are never flagged.
+      </p>
+      <label class="row checkbox">
+        <input type="checkbox" id="stale-enabled">
+        <span>Show stale-tab banner</span>
+      </label>
+      <label class="row">
+        <span>Days before a tab is "stale"</span>
+        <input id="stale-days" type="number" min="1" max="60" step="1" style="width: 80px;">
+      </label>
+    </section>
+
+    <section class="card">
       <h2>AI grouping (optional)</h2>
       <p class="muted">
         When enabled, only <b>host</b> and <b>title</b> of each tab are sent to the LLM —

@@ -54,6 +54,7 @@ export async function loadStats() {
     firstUsed: stats.firstUsed || Math.floor(Date.now() / 1000),
     lifetime: { duplicates: 0, restored: 0, bulk: 0, ...(stats.lifetime || {}) },
     daily: stats.daily || {},
+    weeklyReportSeen: stats.weeklyReportSeen || null,
   };
 }
 
@@ -124,6 +125,52 @@ export function summarizeRange(stats, days) {
     restored * TIME_SAVED_SEC_PER_EVENT.restored +
     bulk * TIME_SAVED_SEC_PER_EVENT.bulk;
   return { duplicates, restored, bulk, activeDays, timeSavedSec };
+}
+
+/**
+ * Daily series for a given event type over the last `days` days,
+ * ordered oldest → newest. Missing days are filled with 0. The
+ * returned array always has exactly `days` entries, which makes it
+ * trivial to plug into a fixed-width sparkline.
+ */
+export function dailySeries(stats, days, type) {
+  if (!['duplicates', 'restored', 'bulk'].includes(type)) return [];
+  const out = [];
+  const start = startOfDayMs(Date.now()) - (days - 1) * 86_400_000;
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start + i * 86_400_000);
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    out.push((stats.daily?.[key]?.[type]) || 0);
+  }
+  return out;
+}
+
+/**
+ * Has the weekly-report modal been shown for the current ISO week?
+ * Returns true the first time the user opens the dashboard each new
+ * week so we can pop the modal, and remembers via a stamp on the
+ * stats blob.
+ */
+export async function shouldShowWeeklyReport() {
+  const stats = await loadStats();
+  const week = isoWeekKey(new Date());
+  if (stats.weeklyReportSeen === week) return false;
+  return true;
+}
+
+export async function markWeeklyReportShown() {
+  const stats = await loadStats();
+  stats.weeklyReportSeen = isoWeekKey(new Date());
+  await chrome.storage.local.set({ [KEY]: stats });
+}
+
+function isoWeekKey(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86_400_000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
 export function lifetimeSummary(stats) {

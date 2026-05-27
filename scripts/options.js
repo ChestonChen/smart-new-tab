@@ -1,9 +1,13 @@
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './lib/storage.js';
 import { loadStats, resetStats, lifetimeSummary, formatDuration } from './lib/stats.js';
+import { THEMES } from './lib/themes.js';
 
 const els = {
   groupMode: document.getElementById('group-mode'),
   showInternal: document.getElementById('show-internal'),
+  themeGrid: document.getElementById('theme-grid'),
+  staleEnabled: document.getElementById('stale-enabled'),
+  staleDays: document.getElementById('stale-days'),
   llmEnabled: document.getElementById('llm-enabled'),
   llmConfig: document.getElementById('llm-config'),
   llmProvider: document.getElementById('llm-provider'),
@@ -33,15 +37,52 @@ async function init() {
 function hydrate() {
   els.groupMode.value = settings.groupMode || 'category';
   els.showInternal.checked = !!settings.showInternalPages;
+  els.staleEnabled.checked = settings.staleEnabled !== false;
+  els.staleDays.value = settings.staleDays || 7;
   els.llmEnabled.checked = !!settings.llm?.enabled;
   els.llmProvider.value = settings.llm?.provider || 'openai';
   els.llmEndpoint.value = settings.llm?.endpoint || '';
   els.llmModel.value = settings.llm?.model || '';
   els.llmKey.value = settings.llm?.apiKey || '';
   toggleLLMConfig();
+  renderThemePicker();
 
   els.userRules.innerHTML = '';
   for (const r of settings.userRules || []) addRuleRow(r);
+}
+
+function renderThemePicker() {
+  els.themeGrid.innerHTML = '';
+  const selected = settings.theme || 'lavender';
+  for (const t of THEMES) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'theme-tile' + (t.id === selected ? ' selected' : '');
+    tile.dataset.themeId = t.id;
+    tile.innerHTML = `
+      <span class="theme-swatch" style="background: linear-gradient(135deg,
+        ${t.swatches[0]} 0%, ${t.swatches[1]} 35%,
+        ${t.swatches[2]} 65%, ${t.swatches[3]} 100%);"></span>
+      <span class="theme-meta">
+        <span class="theme-name">${escapeHtml(t.label)}</span>
+        <span class="theme-desc">${escapeHtml(t.description)}</span>
+      </span>
+    `;
+    tile.addEventListener('click', async () => {
+      settings.theme = t.id;
+      // Persist immediately so any open newtab pages re-skin instantly
+      // via the storage.onChanged listener.
+      await saveSettings(settings);
+      renderThemePicker();
+    });
+    els.themeGrid.appendChild(tile);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
 
 function bind() {
@@ -97,6 +138,8 @@ function collectRules() {
 async function persist() {
   settings.groupMode = els.groupMode.value;
   settings.showInternalPages = els.showInternal.checked;
+  settings.staleEnabled = els.staleEnabled.checked;
+  settings.staleDays = clampNumber(els.staleDays.value, 1, 60, 7);
   settings.llm = {
     enabled: els.llmEnabled.checked,
     provider: els.llmProvider.value,
@@ -109,4 +152,10 @@ async function persist() {
   await saveSettings(settings);
   els.saveState.textContent = 'Saved ✓';
   setTimeout(() => (els.saveState.textContent = ''), 1600);
+}
+
+function clampNumber(raw, lo, hi, fallback) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, Math.round(n)));
 }

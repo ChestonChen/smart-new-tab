@@ -13,7 +13,24 @@ import {
   summarizeRange,
   lifetimeSummary,
   formatDuration,
+  dailySeries,
+  shouldShowWeeklyReport,
+  markWeeklyReportShown,
 } from './lib/stats.js';
+import {
+  touchTab,
+  syncActivity,
+  findStaleTabIds,
+} from './lib/activity.js';
+import {
+  listWorkspaces,
+  createWorkspace,
+  deleteWorkspace,
+  renameWorkspace,
+  restoreWorkspace,
+} from './lib/workspaces.js';
+import { applyTheme } from './lib/themes.js';
+import { createCommandPalette } from './lib/command-palette.js';
 
 const els = {
   greeting: document.getElementById('greeting'),
@@ -60,6 +77,35 @@ const els = {
   impactBulkWeek: document.getElementById('impact-bulk-week'),
   impactBulkLife: document.getElementById('impact-bulk-life'),
   impactTimeWeek: document.getElementById('impact-time-week'),
+  sparkDup: document.getElementById('spark-dup'),
+  sparkRes: document.getElementById('spark-res'),
+  sparkBulk: document.getElementById('spark-bulk'),
+
+  // Pinned tabs
+  pinnedSection: document.getElementById('pinned-section'),
+  pinnedRow: document.getElementById('pinned-row'),
+
+  // Workspaces
+  wsRow: document.getElementById('ws-row'),
+  wsNew: document.getElementById('ws-new'),
+
+  // Stale banner
+  staleBanner: document.getElementById('stale-banner'),
+  staleCount: document.getElementById('stale-count'),
+  staleDays: document.getElementById('stale-days'),
+  staleReview: document.getElementById('stale-review'),
+  staleClose: document.getElementById('stale-close'),
+  staleDismiss: document.getElementById('stale-dismiss'),
+
+  // Weekly report modal
+  weeklyModal: document.getElementById('weekly-modal'),
+  weeklyX: document.getElementById('weekly-x'),
+  weeklyDismiss: document.getElementById('weekly-dismiss'),
+  weeklyOpenSettings: document.getElementById('weekly-open-settings'),
+  weeklyDup: document.getElementById('weekly-dup'),
+  weeklyRes: document.getElementById('weekly-res'),
+  weeklyBulk: document.getElementById('weekly-bulk'),
+  weeklyTime: document.getElementById('weekly-time'),
 
   aiStatusValue: document.getElementById('ai-status-value'),
   openOptions: document.getElementById('open-options'),
@@ -72,6 +118,7 @@ const tpl = {
 
 const state = {
   tabs: [],
+  pinnedTabs: [],
   settings: null,
   query: '',
   groups: new Map(),
@@ -79,7 +126,18 @@ const state = {
   // Multi-select: stores merged-row ids (== representative tab.id).
   // Closing a selected row will tear down ALL of that row's _dupeIds.
   selection: new Set(),
+  // Tabs the user hasn't activated for > staleDays days. Computed
+  // from chrome.storage.local.tabActivity on every reload.
+  staleIds: new Set(),
+  // Session-only flag: when the user dismisses the stale banner, hide
+  // it until the next dashboard reload (don't pester them).
+  staleDismissed: false,
+  // Drag-and-drop: id of the tab currently being dragged.
+  dragTabId: null,
 };
+
+// Command palette is mounted lazily on first Cmd+K.
+let palette = null;
 
 // ---------------------------------------------------------------------------
 
@@ -91,9 +149,12 @@ init().catch((err) => {
 async function init() {
   state.settings = await loadSettings();
   els.groupMode.value = state.settings.groupMode || 'domain';
+  applyTheme(state.settings.theme);
   renderHero();
   updateAIStatusBadge();
   bindEvents();
+  mountCommandPalette();
+  refreshWorkspaces();
 
   // Stamp today as an active day so we can compute the "X days
   // active" metric honestly. Fire-and-forget — never block UI on it.
@@ -101,6 +162,24 @@ async function init() {
 
   await reload();
   registerTabListeners();
+
+  // Pop the weekly report at most once per ISO week. We delay slightly
+  // so the dashboard has time to render its hero — otherwise the modal
+  // feels like it's hijacking the page load.
+  shouldShowWeeklyReport().then((show) => {
+    if (show) setTimeout(showWeeklyReport, 600);
+  }).catch(() => {});
+
+  // Cross-tab sync: when the user changes the theme on the options
+  // page (or anywhere else), update this newtab without a reload.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync' || !changes.settings) return;
+    const next = changes.settings.newValue;
+    if (next?.theme && next.theme !== state.settings.theme) {
+      state.settings.theme = next.theme;
+      applyTheme(state.settings.theme);
+    }
+  });
 }
 
 function bindEvents() {
@@ -153,6 +232,12 @@ function bindEvents() {
   });
 
   document.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl+K → command palette. The palette swallows its own
+    // shortcut + Esc; we just need to forward the event here so it
+    // can decide whether to toggle.
+    if (palette) palette.handleGlobalKey(e);
+    if (e.defaultPrevented) return;
+
     if (e.key === '/' && document.activeElement !== els.search) {
       e.preventDefault();
       els.search.focus();
@@ -169,17 +254,62 @@ function bindEvents() {
       }
     }
   });
+
+  // Workspaces — "Save current" button
+  els.wsNew.addEventListener('click', saveCurrentWorkspace);
+
+  // Stale banner
+  els.staleReview.addEventListener('click', () => {
+    state.query = '';
+    els.search.value = '';
+    // Scroll the first stale tab into view if possible.
+    const firstStale = [...state.staleIds][0];
+    if (firstStale) {
+      const node = document.querySelector(`.tab[data-tab-id="${firstStale}"]`);
+      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+  els.staleClose.addEventListener('click', closeStaleTabs);
+  els.staleDismiss.addEventListener('click', () => {
+    state.staleDismissed = true;
+    els.staleBanner.hidden = true;
+  });
+
+  // Weekly modal — closing it stamps the ISO week so we don't pop it
+  // again this week. Same goes for clicking the backdrop.
+  const dismissWeekly = () => {
+    els.weeklyModal.hidden = true;
+    markWeeklyReportShown().catch(() => {});
+  };
+  els.weeklyX.addEventListener('click', dismissWeekly);
+  els.weeklyDismiss.addEventListener('click', dismissWeekly);
+  els.weeklyOpenSettings.addEventListener('click', (e) => {
+    e.preventDefault();
+    dismissWeekly();
+    openOptions();
+  });
+  els.weeklyModal.addEventListener('click', (e) => {
+    if (e.target.dataset.weeklyClose === '1') dismissWeekly();
+  });
 }
 
 function registerTabListeners() {
   const debounced = debounce(reload, 300);
-  chrome.tabs.onCreated.addListener(debounced);
+  chrome.tabs.onCreated.addListener((tab) => {
+    touchTab(tab.id).catch(() => {});
+    debounced();
+  });
   chrome.tabs.onRemoved.addListener(debounced);
   chrome.tabs.onUpdated.addListener((_, info) => {
     if (info.url || info.title || info.favIconUrl) debounced();
   });
   chrome.tabs.onMoved.addListener(debounced);
   chrome.tabs.onAttached.addListener(debounced);
+  // Stamp every tab the user actually focuses — this is the "last
+  // interaction" signal we use for stale-tab detection.
+  chrome.tabs.onActivated.addListener(({ tabId }) => {
+    touchTab(tabId).catch(() => {});
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -217,12 +347,18 @@ async function reload() {
   state.tabs = tabs;
   state.dupeIndex = indexByDupeKey(tabs);
 
+  // Pinned tabs are surfaced in their own strip — pull them out of
+  // the regular group pipeline so they don't double-appear.
+  const pinned = tabs.filter((t) => t.pinned);
+  const nonPinned = tabs.filter((t) => !t.pinned);
+  state.pinnedTabs = pinned;
+
   // In "by window" mode we want the user to see each window's
   // contents verbatim, so we skip de-duplication there. In all
   // other modes we collapse same-URL tabs into a single row that
   // carries the full id list — clicking × closes one at a time.
   const mode = state.settings.groupMode || 'domain';
-  const tabsForGroups = mode === 'window' ? tabs : mergeDuplicates(tabs);
+  const tabsForGroups = mode === 'window' ? nonPinned : mergeDuplicates(nonPinned);
   state.groups = await buildGroups(tabsForGroups);
 
   // Prune selection: drop ids that no longer exist (just closed).
@@ -236,12 +372,34 @@ async function reload() {
     }
   }
 
+  // Refresh per-tab "last active" stamps + compute stale set.
+  await refreshStaleState();
+
   updateSummary();
   render();
-  // Recently-closed and Impact are independent of the tab list;
-  // refresh both in parallel without blocking dashboard render.
+  renderPinned();
+  // Recently-closed, workspaces and Impact are independent of the
+  // tab list; refresh in parallel without blocking dashboard render.
   refreshRecentlyClosed();
+  refreshWorkspaces();
   renderImpact();
+  renderStaleBanner();
+}
+
+async function refreshStaleState() {
+  if (!state.settings.staleEnabled) {
+    state.staleIds = new Set();
+    return;
+  }
+  try {
+    const ids = state.tabs.map((t) => t.id);
+    const map = await syncActivity(ids);
+    const stale = findStaleTabIds(map, state.tabs, state.settings.staleDays || 7);
+    state.staleIds = new Set(stale);
+  } catch (err) {
+    console.warn('[smart-new-tab] stale detection failed:', err);
+    state.staleIds = new Set();
+  }
 }
 
 async function buildGroups(tabs) {
@@ -383,6 +541,7 @@ function matchTab(t, q) {
 function renderGroup({ info, items }) {
   const node = tpl.group.content.firstElementChild.cloneNode(true);
   node.dataset.groupId = info.id;
+  node.dataset.groupLabel = info.label;
   // Stable per-group hue so the same site keeps the same accent color
   // across reloads and across windows.
   node.style.setProperty('--group-hue', hashHue(info.label));
@@ -392,6 +551,29 @@ function renderGroup({ info, items }) {
   node.querySelector('.group-count').textContent = count;
   node.querySelector('.group-count-label').textContent =
     count === 1 ? ' tab open' : ' tabs open';
+
+  // Drag-and-drop reclassify only makes sense in 'category' mode —
+  // in 'domain' / 'window' modes the label is mechanical and can't
+  // be overridden by a user rule.
+  if (state.settings.groupMode === 'category') {
+    node.addEventListener('dragover', (e) => {
+      if (state.dragTabId == null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      node.classList.add('drag-over');
+    });
+    node.addEventListener('dragleave', () => node.classList.remove('drag-over'));
+    node.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      node.classList.remove('drag-over');
+      const draggedId = state.dragTabId;
+      state.dragTabId = null;
+      if (draggedId == null) return;
+      const t = state.tabs.find((x) => x.id === draggedId);
+      if (!t) return;
+      await reclassifyTabToCategory(t, info.label);
+    });
+  }
 
   const list = node.querySelector('.tab-list');
   for (const t of items) list.appendChild(renderTab(t));
@@ -435,6 +617,35 @@ function renderTab(t) {
     const dupe = node.querySelector('.tab-dupe');
     node.querySelector('.tab-dupe-count').textContent = dupeCount;
     dupe.hidden = false;
+  }
+
+  // Stale badge: surfaces tabs the user hasn't touched for a while.
+  // We mark the merged-row's representative; if any of its underlying
+  // ids is stale, show the badge.
+  const rowIds = t._dupeIds || [t.id];
+  const isStale = rowIds.some((id) => state.staleIds.has(id));
+  if (isStale) {
+    node.classList.add('stale');
+    const badge = document.createElement('span');
+    badge.className = 'tab-stale';
+    badge.textContent = '⏰';
+    badge.title = `Not opened in ${state.settings.staleDays || 7}+ days`;
+    node.querySelector('.tab-text').appendChild(badge);
+  }
+
+  // Drag-and-drop: enable only in category mode (see renderGroup).
+  if (state.settings.groupMode === 'category') {
+    node.draggable = true;
+    node.addEventListener('dragstart', (e) => {
+      state.dragTabId = t.id;
+      node.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(t.id));
+    });
+    node.addEventListener('dragend', () => {
+      state.dragTabId = null;
+      node.classList.remove('dragging');
+    });
   }
 
   node.addEventListener('click', (e) => {
@@ -591,6 +802,63 @@ async function renderImpact() {
     els.impactMeta.textContent =
       `Since ${fmt.format(new Date(firstUsedMs))} · ${days} day${days === 1 ? '' : 's'} · ${life.activeDays} active`;
   }
+
+  drawSparkline(els.sparkDup,  dailySeries(stats, 7, 'duplicates'));
+  drawSparkline(els.sparkRes,  dailySeries(stats, 7, 'restored'));
+  drawSparkline(els.sparkBulk, dailySeries(stats, 7, 'bulk'));
+}
+
+/**
+ * Render a fixed-width sparkline into an existing <svg viewBox="0 0 100 28">.
+ * Empty / all-zero series render a flat baseline so the card never
+ * looks broken on a fresh install.
+ */
+function drawSparkline(svg, series) {
+  if (!svg) return;
+  svg.innerHTML = '';
+  const n = series.length;
+  if (n === 0) return;
+  const max = Math.max(1, ...series);
+  const W = 100, H = 28, pad = 2;
+  const step = (W - pad * 2) / Math.max(1, n - 1);
+  const points = series.map((v, i) => {
+    const x = pad + step * i;
+    const y = pad + (H - pad * 2) * (1 - v / max);
+    return [x, y];
+  });
+
+  // Smooth fill + line path
+  const lineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
+  const areaD = `${lineD} L ${points[n - 1][0].toFixed(2)} ${H - pad} L ${points[0][0].toFixed(2)} ${H - pad} Z`;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const defs = document.createElementNS(ns, 'defs');
+  defs.innerHTML = `
+    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="var(--brand-1)" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="var(--brand-1)" stop-opacity="0"/>
+    </linearGradient>
+  `;
+  svg.appendChild(defs);
+
+  const area = document.createElementNS(ns, 'path');
+  area.setAttribute('class', 'area');
+  area.setAttribute('d', areaD);
+  svg.appendChild(area);
+
+  const line = document.createElementNS(ns, 'path');
+  line.setAttribute('class', 'line');
+  line.setAttribute('d', lineD);
+  svg.appendChild(line);
+
+  // Dot on the latest point — gives the card a "live pulse" feel.
+  const lastP = points[n - 1];
+  const dot = document.createElementNS(ns, 'circle');
+  dot.setAttribute('class', 'dot');
+  dot.setAttribute('cx', lastP[0].toFixed(2));
+  dot.setAttribute('cy', lastP[1].toFixed(2));
+  dot.setAttribute('r', '2.2');
+  svg.appendChild(dot);
 }
 
 // ---------------------------------------------------------------------------
@@ -814,6 +1082,326 @@ function findFirstVisibleTab() {
     for (const t of g.items) if (matchTab(t, q)) return t;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Pinned tabs strip
+// ---------------------------------------------------------------------------
+
+function renderPinned() {
+  if (state.pinnedTabs.length === 0) {
+    els.pinnedSection.hidden = true;
+    return;
+  }
+  els.pinnedSection.hidden = false;
+  els.pinnedRow.innerHTML = '';
+
+  // De-dupe pinned tabs by URL — if a user pins the same tab in two
+  // windows, we still show a single chip (clicking activates the rep).
+  const seen = new Map();
+  for (const t of state.pinnedTabs) {
+    const key = t.dupeKey;
+    if (!seen.has(key)) seen.set(key, t);
+  }
+  for (const t of seen.values()) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'pinned-chip';
+    chip.title = `${t.title}\n${t.url}`;
+
+    const pin = document.createElement('span');
+    pin.className = 'pinned-chip-pin';
+    pin.textContent = '📌';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = resolveFavicon(t);
+    img.loading = 'lazy';
+    const label = document.createElement('span');
+    label.textContent = t.title || t.host || t.url;
+
+    chip.appendChild(pin);
+    chip.appendChild(img);
+    chip.appendChild(label);
+    chip.addEventListener('click', () => activateTab(t));
+    els.pinnedRow.appendChild(chip);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces strip
+// ---------------------------------------------------------------------------
+
+async function refreshWorkspaces() {
+  const list = await listWorkspaces();
+  // Re-render: keep the "Save current" chip + append one chip per
+  // workspace. Render newest first.
+  els.wsRow.innerHTML = '';
+  els.wsRow.appendChild(els.wsNew);
+
+  for (const ws of list) {
+    const chip = document.createElement('div');
+    chip.className = 'ws-chip';
+    chip.dataset.wsId = ws.id;
+    chip.title = `${ws.tabs.length} tab${ws.tabs.length === 1 ? '' : 's'} · saved ${relativeTime(ws.updatedAt)}\nClick to append · Shift-click to replace · Right-click for more`;
+
+    const icon = document.createElement('span');
+    icon.className = 'ws-chip-icon';
+    icon.textContent = '💼';
+    const label = document.createElement('span');
+    label.className = 'ws-chip-label';
+    label.textContent = ws.name;
+    const meta = document.createElement('span');
+    meta.className = 'ws-chip-meta';
+    meta.textContent = `${ws.tabs.length}`;
+    const actions = document.createElement('span');
+    actions.className = 'ws-chip-actions';
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'ws-chip-x';
+    renameBtn.title = 'Rename';
+    renameBtn.textContent = '✎';
+    renameBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const next = prompt('Rename workspace', ws.name);
+      if (next && next.trim()) {
+        await renameWorkspace(ws.id, next.trim());
+        refreshWorkspaces();
+      }
+    });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'ws-chip-x';
+    delBtn.title = 'Delete';
+    delBtn.textContent = '×';
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete workspace "${ws.name}"?`)) return;
+      await deleteWorkspace(ws.id);
+      refreshWorkspaces();
+    });
+    actions.appendChild(renameBtn);
+    actions.appendChild(delBtn);
+
+    chip.appendChild(icon);
+    chip.appendChild(label);
+    chip.appendChild(meta);
+    chip.appendChild(actions);
+
+    chip.addEventListener('click', async (e) => {
+      if (e.target.closest('.ws-chip-x')) return;
+      const replace = e.shiftKey;
+      try {
+        const opened = await restoreWorkspace(ws.id, replace ? 'replace' : 'append');
+        recordEvent('restored', opened).then(renderImpact);
+        toast(`Restored ${opened} tab${opened === 1 ? '' : 's'}${replace ? ' (replaced current)' : ''}`);
+        setTimeout(reload, 250);
+      } catch (err) {
+        toast('Restore failed: ' + err.message);
+      }
+    });
+
+    els.wsRow.appendChild(chip);
+  }
+}
+
+async function saveCurrentWorkspace() {
+  // Use the un-pinned, non-internal tab list for the snapshot. We
+  // include duplicates intentionally — they were open at this moment.
+  const snapshot = state.tabs.filter((t) => !t.pinned);
+  if (snapshot.length === 0) {
+    toast('Nothing to save — open some tabs first');
+    return;
+  }
+  const name = prompt(`Name this workspace (${snapshot.length} tab${snapshot.length === 1 ? '' : 's'})`, defaultWorkspaceName(snapshot));
+  if (name === null) return; // user cancelled
+  const trimmed = name.trim() || defaultWorkspaceName(snapshot);
+  await createWorkspace(trimmed, snapshot);
+  await refreshWorkspaces();
+  toast(`Saved "${trimmed}" (${snapshot.length} tab${snapshot.length === 1 ? '' : 's'})`);
+}
+
+function defaultWorkspaceName(tabs) {
+  // Pick the most-frequent root domain as a hint.
+  const counts = new Map();
+  for (const t of tabs) {
+    const k = t.rootDomain || t.host;
+    if (!k) continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  let top = '';
+  let best = 0;
+  for (const [k, v] of counts) {
+    if (v > best) { top = k; best = v; }
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  return top ? `${top} · ${today}` : `Workspace · ${today}`;
+}
+
+// ---------------------------------------------------------------------------
+// Stale tab banner
+// ---------------------------------------------------------------------------
+
+function renderStaleBanner() {
+  if (!state.settings.staleEnabled) {
+    els.staleBanner.hidden = true;
+    return;
+  }
+  if (state.staleDismissed || state.staleIds.size === 0) {
+    els.staleBanner.hidden = true;
+    return;
+  }
+  els.staleBanner.hidden = false;
+  els.staleCount.textContent = state.staleIds.size;
+  els.staleDays.textContent = state.settings.staleDays || 7;
+}
+
+async function closeStaleTabs() {
+  const ids = [...state.staleIds];
+  if (ids.length === 0) return;
+  if (!confirm(`Close ${ids.length} stale tab${ids.length === 1 ? '' : 's'} that you haven't touched in ${state.settings.staleDays || 7}+ days?`)) return;
+  await chrome.tabs.remove(ids);
+  // Same accounting as a bulk-close: each closed tab counts.
+  recordEvent('bulk', ids.length).then(renderImpact);
+  toast(`Closed ${ids.length} stale tab${ids.length === 1 ? '' : 's'}`);
+  state.staleDismissed = false;
+  setTimeout(reload, 100);
+}
+
+// ---------------------------------------------------------------------------
+// Weekly report modal
+// ---------------------------------------------------------------------------
+
+async function showWeeklyReport() {
+  let stats;
+  try { stats = await loadStats(); }
+  catch { return; }
+  const week = summarizeRange(stats, 7);
+  els.weeklyDup.textContent  = week.duplicates;
+  els.weeklyRes.textContent  = week.restored;
+  els.weeklyBulk.textContent = week.bulk;
+  els.weeklyTime.textContent = formatDuration(week.timeSavedSec);
+
+  // Sub-line: if there's literally nothing happening, still show
+  // something encouraging instead of a blank stat panel.
+  const total = week.duplicates + week.restored + week.bulk;
+  els.weeklyModal.querySelector('#weekly-sub').textContent = total > 0
+    ? `Your last 7 days at a glance — keep it up.`
+    : `No actions last week yet. Try the dedupe pill or right-click a tab — these stats grow as you use the dashboard.`;
+
+  els.weeklyModal.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
+// Drag-and-drop reclassify
+// ---------------------------------------------------------------------------
+
+async function reclassifyTabToCategory(tab, categoryLabel) {
+  // Persist a user rule so the change sticks across reloads.
+  // Earliest-match-wins, so we prepend.
+  const match = tab.host || tab.rootDomain || tab.url;
+  if (!match || !categoryLabel) return;
+  const rules = Array.isArray(state.settings.userRules) ? state.settings.userRules : [];
+  // De-dupe: if a rule for this host already exists, update it in place.
+  const existing = rules.find((r) => (r.match || '').toLowerCase() === match.toLowerCase());
+  if (existing) {
+    existing.category = categoryLabel;
+  } else {
+    rules.unshift({ match, category: categoryLabel, emoji: '' });
+  }
+  state.settings.userRules = rules;
+  await saveSettings(state.settings);
+  toast(`Moved "${tab.host || match}" → ${categoryLabel}`);
+  await reload();
+}
+
+// ---------------------------------------------------------------------------
+// Command palette wiring
+// ---------------------------------------------------------------------------
+
+function mountCommandPalette() {
+  palette = createCommandPalette({
+    /** Plug the palette into our existing tab/group state. */
+    searchTabs: async (q) => {
+      const results = [];
+      const ql = q.toLowerCase();
+      for (const g of state.groups.values()) {
+        for (const t of g.items) {
+          if (!ql || matchTab(t, ql)) {
+            results.push({
+              kind: 'tab',
+              tab: t,
+              label: t.title || t.url,
+              hint: `${g.info.label} · ${t.host}`,
+              icon: '↗',
+            });
+          }
+          if (results.length >= 40) break;
+        }
+      }
+      return results;
+    },
+    onAction: handlePaletteAction,
+  });
+}
+
+async function handlePaletteAction(action) {
+  switch (action.type) {
+    case 'activate-tab':
+      await activateTab(action.tab);
+      break;
+    case 'close-duplicates':
+      await closeDuplicates();
+      break;
+    case 'close-all':
+      await closeEverything();
+      break;
+    case 'restore-last':
+      try {
+        if (chrome.sessions?.getRecentlyClosed) {
+          const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 1 });
+          const s = sessions[0];
+          const id = s?.tab?.sessionId || s?.window?.sessionId;
+          if (id) {
+            await chrome.sessions.restore(id);
+            const amount = s.window ? (s.window.tabs?.length || 1) : 1;
+            recordEvent('restored', amount).then(renderImpact);
+            setTimeout(reload, 200);
+          } else {
+            toast('Nothing to restore');
+          }
+        }
+      } catch (err) {
+        toast('Restore failed: ' + err.message);
+      }
+      break;
+    case 'bookmark-all':
+      try {
+        let n = 0;
+        for (const t of state.tabs) {
+          try { await chrome.bookmarks.create({ title: t.title, url: t.url }); n++; } catch {}
+        }
+        toast(`Bookmarked ${n} tab${n === 1 ? '' : 's'}`);
+      } catch (err) {
+        toast('Bookmark failed: ' + err.message);
+      }
+      break;
+    case 'workspace-save':
+      await saveCurrentWorkspace();
+      break;
+    case 'open-settings':
+      openOptions();
+      break;
+    case 'theme': {
+      const next = applyTheme(action.theme);
+      state.settings.theme = next;
+      await saveSettings(state.settings);
+      toast(`Theme: ${next.charAt(0).toUpperCase() + next.slice(1)}`);
+      break;
+    }
+    case 'google':
+      searchOnGoogle(action.query, false);
+      break;
+    default:
+      console.warn('Unknown palette action:', action);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,12 @@
 export const DEFAULT_SETTINGS = {
   groupMode: 'domain', // 'domain' | 'category' | 'window'
   showInternalPages: false,
+  // Visual theme; controls the mesh gradient + brand accent palette.
+  theme: 'lavender', // 'lavender' | 'ocean' | 'forest' | 'sunset'
+  // Stale-tab detection: prompt the user when N tabs go unused for
+  // more than `staleDays` days. Disabled = no callout / no badges.
+  staleEnabled: true,
+  staleDays: 7,
   llm: {
     enabled: false,
     provider: 'openai', // 'openai' | 'anthropic' | 'ollama' | 'custom'

@@ -38,6 +38,45 @@
       <p class="hero-date" id="hero-date"></p>
     </section>
 
+    <!-- Workspaces: named snapshots of all open tabs -->
+    <section class="workspaces" id="workspaces-section">
+      <header class="ws-head">
+        <h3 class="ws-title">Workspaces</h3>
+        <span class="ws-hint">Snapshot every open tab so you can restore the session later.</span>
+      </header>
+      <div class="ws-row" id="ws-row">
+        <button class="ws-chip ws-chip-new" id="ws-new" title="Save current tabs as a workspace">
+          <span class="ws-chip-icon">＋</span>
+          <span class="ws-chip-label">Save current tabs</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Stale tabs banner: warns if N tabs haven't been touched for a while -->
+    <section class="stale-banner" id="stale-banner" hidden>
+      <span class="stale-icon">⏰</span>
+      <div class="stale-text">
+        <strong id="stale-count">0</strong>
+        <span> tabs haven't been touched in </span>
+        <strong id="stale-days">7</strong>
+        <span> days. </span>
+      </div>
+      <div class="stale-actions">
+        <button class="stale-btn" id="stale-review">Review</button>
+        <button class="stale-btn stale-btn-danger" id="stale-close">Close stale</button>
+        <button class="stale-btn stale-btn-ghost" id="stale-dismiss" title="Hide for now">Dismiss</button>
+      </div>
+    </section>
+
+    <!-- Pinned tabs: a single horizontal strip above Impact -->
+    <section class="pinned" id="pinned-section" hidden>
+      <header class="pinned-head">
+        <h3 class="pinned-title">Pinned</h3>
+        <span class="pinned-hint">Always-on tabs across all windows</span>
+      </header>
+      <div class="pinned-row" id="pinned-row"></div>
+    </section>
+
     <!-- Impact panel: usage savings -->
     <section class="impact" id="impact-section">
       <header class="impact-head">
@@ -52,6 +91,7 @@
             <div class="impact-card-label">duplicate tabs cleaned</div>
             <div class="impact-card-sub"><span id="impact-dup-life">0</span> all-time</div>
           </div>
+          <svg class="spark" id="spark-dup" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"></svg>
         </article>
         <article class="impact-card">
           <span class="impact-card-icon">↺</span>
@@ -60,6 +100,7 @@
             <div class="impact-card-label">tabs recovered</div>
             <div class="impact-card-sub"><span id="impact-res-life">0</span> all-time</div>
           </div>
+          <svg class="spark" id="spark-res" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"></svg>
         </article>
         <article class="impact-card">
           <span class="impact-card-icon">⚡</span>
@@ -68,6 +109,7 @@
             <div class="impact-card-label">tabs bulk-closed</div>
             <div class="impact-card-sub"><span id="impact-bulk-life">0</span> all-time</div>
           </div>
+          <svg class="spark" id="spark-bulk" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"></svg>
         </article>
         <article class="impact-card impact-card-time">
           <span class="impact-card-icon">⏱️</span>
@@ -140,6 +182,39 @@
       <span class="dot">·</span>
       <a href="https://github.com/" target="_blank" rel="noopener" id="repo-link">GitHub</a>
     </footer>
+  </div>
+
+  <!-- Weekly report modal: pops once per ISO week -->
+  <div class="weekly" id="weekly-modal" hidden role="dialog" aria-modal="true" aria-label="Weekly impact report">
+    <div class="weekly-backdrop" data-weekly-close="1"></div>
+    <div class="weekly-panel">
+      <header class="weekly-head">
+        <span class="weekly-emoji">🗓️</span>
+        <h2 class="weekly-title">Your tabs · last week</h2>
+        <button class="weekly-x" id="weekly-x" aria-label="Close">✕</button>
+      </header>
+      <p class="weekly-sub" id="weekly-sub">A quick look at what Smart New Tab saved you.</p>
+      <div class="weekly-grid">
+        <div class="weekly-stat">
+          <div class="weekly-stat-num" id="weekly-dup">0</div>
+          <div class="weekly-stat-label">duplicates closed</div>
+        </div>
+        <div class="weekly-stat">
+          <div class="weekly-stat-num" id="weekly-res">0</div>
+          <div class="weekly-stat-label">tabs restored</div>
+        </div>
+        <div class="weekly-stat">
+          <div class="weekly-stat-num" id="weekly-bulk">0</div>
+          <div class="weekly-stat-label">tabs bulk-closed</div>
+        </div>
+        <div class="weekly-stat weekly-stat-time">
+          <div class="weekly-stat-num" id="weekly-time">0 s</div>
+          <div class="weekly-stat-label">≈ time saved</div>
+        </div>
+      </div>
+      <p class="weekly-note" id="weekly-note">Numbers cover the last 7 days. Counters keep going — see <a href="#" id="weekly-open-settings">Settings</a> for the lifetime total.</p>
+      <button class="weekly-cta" id="weekly-dismiss">Got it</button>
+    </div>
   </div>
 
   <!-- Floating bulk-action bar, shown when one or more tabs are selected -->
