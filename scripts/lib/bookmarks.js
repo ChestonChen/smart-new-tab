@@ -20,24 +20,41 @@
  */
 
 /**
- * Resolve to the children of the bookmark bar, in their Chrome order.
+ * Resolve to the items that should populate the strip. Returns, in order:
+ *   1. The direct children of the Bookmarks Bar (id "1")
+ *   2. A synthetic "Other bookmarks" folder chip (id "2") iff that root
+ *      has any content
+ *
+ * Why surface "Other bookmarks"? Chrome's own bookmarks bar shows it as
+ * a right-edge dropdown so users whose bookmarks live there can still
+ * reach them in one click. Mirroring that means our strip is useful
+ * regardless of whether someone organizes via the Bookmarks Bar or
+ * dumps everything into the default location.
+ *
+ * The "2" id is real — it's just chrome.bookmarks's id for the Other
+ * Bookmarks root. Clicking the synthetic chip therefore reuses the
+ * same loadFolderChildren("2") path as any other folder, no special-
+ * casing needed downstream.
+ *
  * If the API call fails (e.g. extension lacking permission), returns []
  * and logs a console warning — the strip will simply render empty rather
  * than crash the page.
  */
 export async function loadBookmarkBarChildren() {
   try {
-    // chrome.bookmarks.getChildren walks one level. The Bookmark Bar is
-    // always id "1" in Chrome (and Edge, Brave — all Chromium-based).
-    // If a different vendor returns something funky we'll fall through
-    // to the catch and surface an empty strip.
-    const children = await chrome.bookmarks.getChildren('1');
-    // Children come back without a `children` array even for folders;
-    // chrome.bookmarks.getChildren returns just the direct level. We
-    // lazily fetch sub-folder contents on demand in expandFolder().
-    return children.map(normalize);
+    // Bookmark roots are stable across all Chromium browsers:
+    //   "1" = Bookmarks Bar     "2" = Other bookmarks     "3" = Mobile
+    const [barChildren, otherChildren] = await Promise.all([
+      chrome.bookmarks.getChildren('1'),
+      chrome.bookmarks.getChildren('2').catch(() => []),
+    ]);
+    const out = barChildren.map(normalize);
+    if (otherChildren.length > 0) {
+      out.push({ id: '2', title: 'Other bookmarks' });
+    }
+    return out;
   } catch (err) {
-    console.warn('[smart-new-tab] failed to load bookmark bar:', err);
+    console.warn('[smart-new-tab] failed to load bookmark roots:', err);
     return [];
   }
 }
