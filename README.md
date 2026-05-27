@@ -19,7 +19,7 @@ Everything runs locally. No tracking, no analytics, no ads. Optional AI grouping
 - **Smart grouping** — by site name (default) or by heuristic category (Development, Docs, Communication, Video, Shopping, Design, Cloud, …).
 - **Duplicate detection** with URL normalization (UTM params / fragments / trailing slash stripped). Close one duplicate or all of them.
 - **Custom rules** — map any `host` / URL / title substring to your own category and emoji.
-- **AI grouping (optional)** — OpenAI, Anthropic, local Ollama, or any OpenAI-compatible endpoint. Privacy-preserving payload.
+- **AI grouping via Cursor** — when the bundled [`cursor-llm-proxy`](tools/cursor-llm-proxy/) is running on localhost, the dashboard layers semantic LLM groupings on top of the heuristic ones. No API key, no per-request cost outside your Cursor subscription. Privacy contract: only `host` + `title` are sent.
 - **Pinned tabs strip** — Chrome-pinned tabs surface in a dedicated row above the groups.
 - **Drag and drop reclassification** — drag a tab onto any category group to persist a custom rule.
 
@@ -66,44 +66,38 @@ In Settings → *Custom rules*:
 
 Earlier rules win. Drag-and-drop reclassification on the dashboard appends to this list automatically.
 
-### AI grouping
+### AI grouping (via Cursor)
 
-In Settings → *AI grouping*, toggle on and fill the provider config:
+The extension's AI grouping is hardcoded to talk to the bundled
+[`cursor-llm-proxy`](tools/cursor-llm-proxy/) on
+`http://127.0.0.1:8788`. There is no provider / endpoint / key
+configuration to fill in — if the proxy is running the dashboard uses
+it, otherwise it silently falls back to heuristic groups.
 
-| Provider  | Endpoint (leave blank for default)            | Model example                | API key          |
-| --------- | --------------------------------------------- | ---------------------------- | ---------------- |
-| OpenAI    | `https://api.openai.com/v1/chat/completions`  | `gpt-4o-mini`                | required         |
-| Anthropic | `https://api.anthropic.com/v1/messages`       | `claude-3-5-haiku-latest`    | required         |
-| Ollama    | `http://localhost:11434/api/chat`             | `llama3.2` / `qwen2.5`       | not needed       |
-| Custom    | any OpenAI-compatible URL                     | depends                      | optional         |
-
-**Privacy contract:** only the `host` and the trimmed `title` of each tab are transmitted. Full URL, query string, cookies, and page content never leave your machine. If the LLM request fails, the dashboard silently falls back to the heuristic groups.
-
-### Use Cursor as your local LLM (no API key)
-
-If you already pay for Cursor, you can route AI grouping through your
-existing Cursor subscription via the bundled
-[`cursor-llm-proxy`](tools/cursor-llm-proxy/) — a 200-line Node script
-that exposes an OpenAI-compatible endpoint on `127.0.0.1:8788` and
-fulfils every request by shelling out to `cursor-agent`.
+One-time setup:
 
 ```bash
-# one-time
 curl https://cursor.com/install -fsSL | bash    # install cursor-agent
 cursor-agent login                              # auth with your Cursor account
+```
 
-# each session (or add to ~/.zshrc to auto-start)
+Each Cursor / Terminal session (or once after every reboot):
+
+```bash
+cd path/to/smart-new-tab
 bash tools/cursor-llm-proxy/start.sh
 ```
 
-Then in the extension's options page set:
+Open a new tab. The dashboard paints heuristic groups instantly and
+~10s later the LLM groupings fold in on top.
 
-- **Provider**: `Custom`
-- **Endpoint**: `http://127.0.0.1:8788/v1/chat/completions`
-- **Model**: `sonnet-4`
-- **API key**: (blank)
+**Privacy contract:** only the `host` and the trimmed `title` of each
+tab are transmitted, and only to your own `127.0.0.1`. Full URL, query
+string, cookies, and page content never leave your machine.
 
-See [`tools/cursor-llm-proxy/README.md`](tools/cursor-llm-proxy/README.md) for details, launchd auto-start, performance caveats, and troubleshooting.
+See [`tools/cursor-llm-proxy/README.md`](tools/cursor-llm-proxy/README.md)
+for details, optional launchd auto-start, performance caveats, and
+troubleshooting.
 
 ### Themes & stale tabs
 

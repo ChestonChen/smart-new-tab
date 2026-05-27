@@ -52,46 +52,6 @@
     </section>
 
     <section class="card">
-      <h2>AI grouping (optional)</h2>
-      <p class="muted">
-        When enabled, only <b>host</b> and <b>title</b> of each tab are sent to the LLM —
-        never the full URL, cookies, or page content.
-      </p>
-
-      <label class="row checkbox">
-        <input type="checkbox" id="llm-enabled">
-        <span>Enable AI grouping</span>
-      </label>
-
-      <div id="llm-config" class="config-grid">
-        <label>
-          <span>Provider</span>
-          <select id="llm-provider">
-            <option value="openai">OpenAI (or OpenAI-compatible)</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="ollama">Ollama (local)</option>
-            <option value="custom">Custom (OpenAI-shaped)</option>
-          </select>
-        </label>
-
-        <label>
-          <span>Endpoint</span>
-          <input id="llm-endpoint" type="text" placeholder="(leave blank for provider default)">
-        </label>
-
-        <label>
-          <span>Model</span>
-          <input id="llm-model" type="text" placeholder="gpt-4o-mini / claude-3-5-haiku-latest / llama3.2">
-        </label>
-
-        <label>
-          <span>API key</span>
-          <input id="llm-key" type="password" placeholder="(not required for local Ollama)">
-        </label>
-      </div>
-    </section>
-
-    <section class="card">
       <h2>Impact stats</h2>
       <p class="muted">
         Smart New Tab tracks how many duplicates you've closed, tabs you've recovered,

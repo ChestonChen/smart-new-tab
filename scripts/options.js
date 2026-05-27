@@ -8,12 +8,6 @@ const els = {
   themeGrid: document.getElementById('theme-grid'),
   staleEnabled: document.getElementById('stale-enabled'),
   staleDays: document.getElementById('stale-days'),
-  llmEnabled: document.getElementById('llm-enabled'),
-  llmConfig: document.getElementById('llm-config'),
-  llmProvider: document.getElementById('llm-provider'),
-  llmEndpoint: document.getElementById('llm-endpoint'),
-  llmModel: document.getElementById('llm-model'),
-  llmKey: document.getElementById('llm-key'),
   userRules: document.getElementById('user-rules'),
   addRule: document.getElementById('add-rule'),
   save: document.getElementById('save'),
@@ -39,12 +33,6 @@ function hydrate() {
   els.showInternal.checked = !!settings.showInternalPages;
   els.staleEnabled.checked = settings.staleEnabled !== false;
   els.staleDays.value = settings.staleDays || 7;
-  els.llmEnabled.checked = !!settings.llm?.enabled;
-  els.llmProvider.value = settings.llm?.provider || 'openai';
-  els.llmEndpoint.value = settings.llm?.endpoint || '';
-  els.llmModel.value = settings.llm?.model || '';
-  els.llmKey.value = settings.llm?.apiKey || '';
-  toggleLLMConfig();
   renderThemePicker();
 
   els.userRules.innerHTML = '';
@@ -86,7 +74,6 @@ function escapeHtml(s) {
 }
 
 function bind() {
-  els.llmEnabled.addEventListener('change', toggleLLMConfig);
   els.addRule.addEventListener('click', () => addRuleRow({}));
   els.save.addEventListener('click', persist);
   els.resetStats.addEventListener('click', async () => {
@@ -108,10 +95,6 @@ async function refreshImpactSummary() {
   } catch (err) {
     els.impactSummary.textContent = '';
   }
-}
-
-function toggleLLMConfig() {
-  els.llmConfig.classList.toggle('disabled', !els.llmEnabled.checked);
 }
 
 function addRuleRow(rule) {
@@ -140,13 +123,6 @@ async function persist() {
   settings.showInternalPages = els.showInternal.checked;
   settings.staleEnabled = els.staleEnabled.checked;
   settings.staleDays = clampNumber(els.staleDays.value, 1, 60, 7);
-  settings.llm = {
-    enabled: els.llmEnabled.checked,
-    provider: els.llmProvider.value,
-    endpoint: els.llmEndpoint.value.trim(),
-    model: els.llmModel.value.trim(),
-    apiKey: els.llmKey.value,
-  };
   settings.userRules = collectRules();
 
   await saveSettings(settings);

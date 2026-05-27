@@ -106,8 +106,6 @@ const els = {
   weeklyRes: document.getElementById('weekly-res'),
   weeklyBulk: document.getElementById('weekly-bulk'),
   weeklyTime: document.getElementById('weekly-time'),
-
-  aiStatusValue: document.getElementById('ai-status-value'),
 };
 
 const tpl = {
@@ -150,7 +148,6 @@ async function init() {
   els.groupMode.value = state.settings.groupMode || 'domain';
   applyTheme(state.settings.theme);
   renderHero();
-  updateAIStatusBadge();
   bindEvents();
   mountCommandPalette();
   refreshWorkspaces();
@@ -1404,12 +1401,6 @@ async function handlePaletteAction(action) {
 // ---------------------------------------------------------------------------
 // Misc helpers
 // ---------------------------------------------------------------------------
-
-function updateAIStatusBadge() {
-  const enabled = !!state.settings?.llm?.enabled;
-  els.aiStatusValue.textContent = enabled ? 'on' : 'off';
-  els.aiStatusValue.style.color = enabled ? '#0ea5e9' : 'var(--text-mute)';
-}
 
 function openOptions() {
   chrome.runtime.openOptionsPage();

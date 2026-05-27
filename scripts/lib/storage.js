@@ -11,11 +11,15 @@ export const DEFAULT_SETTINGS = {
   // more than `staleDays` days. Disabled = no callout / no badges.
   staleEnabled: true,
   staleDays: 7,
+  // AI grouping is hardcoded to talk to the bundled cursor-llm-proxy.
+  // The user can't change these from the options page; if the local
+  // proxy isn't running, llm.js silently falls back to heuristic groups.
+  // See tools/cursor-llm-proxy/ for how to start the proxy.
   llm: {
-    enabled: false,
-    provider: 'openai', // 'openai' | 'anthropic' | 'ollama' | 'custom'
-    endpoint: '',
-    model: '',
+    enabled: true,
+    provider: 'custom',
+    endpoint: 'http://127.0.0.1:8788/v1/chat/completions',
+    model: 'sonnet-4',
     apiKey: '',
   },
   userRules: [

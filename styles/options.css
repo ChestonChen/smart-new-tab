@@ -92,25 +92,6 @@ select {
 }
 input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
 
-.config-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.config-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.config-grid input,
-.config-grid select { min-width: 0; }
-
-@media (max-width: 540px) {
-  .config-grid { grid-template-columns: 1fr; }
-}
-
 #user-rules {
   display: flex;
   flex-direction: column;
@@ -156,9 +137,6 @@ input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 
   gap: 12px;
   padding-top: 8px;
 }
-
-#llm-config { transition: opacity .15s; }
-#llm-config.disabled { opacity: 0.4; pointer-events: none; }
 
 /* ----- theme picker ----- */
 .theme-grid {
