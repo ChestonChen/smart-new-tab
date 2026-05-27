@@ -340,9 +340,19 @@ body::before {
   border-radius: var(--radius-pill);
   border: 1px solid transparent;
   cursor: default;
-  transition: background .15s, color .15s, border-color .15s;
+  transition: background .15s, color .15s, border-color .15s, transform .12s;
   white-space: nowrap;
+  user-select: none;
 }
+.ai-chip[data-state="applied"],
+.ai-chip[data-state="offline"],
+.ai-chip[data-state="no-result"] { cursor: pointer; }
+.ai-chip[data-state="applied"]:hover,
+.ai-chip[data-state="offline"]:hover,
+.ai-chip[data-state="no-result"]:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.ai-chip[data-state="applied"]:active,
+.ai-chip[data-state="offline"]:active,
+.ai-chip[data-state="no-result"]:active { transform: translateY(0); }
 .ai-chip-dot {
   width: 7px;
   height: 7px;

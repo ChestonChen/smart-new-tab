@@ -139,6 +139,13 @@ const state = {
   //   'offline'     — proxy unreachable on last try
   //   'no-result'   — proxy reachable but reply was unusable
   aiStatus: 'na',
+  // Cached LLM result for the current session. Reused on every reload
+  // so closing / dragging / opening tabs doesn't trigger a fresh ~15s
+  // LLM round-trip. The cache is invalidated only when the user hits
+  // the refresh button or clicks the AI chip; dead tab ids in the
+  // cache are inert (applyLLMOverrides only consumes entries for tabs
+  // that are still on screen).
+  aiOverridesCache: new Map(),
 };
 
 // Command palette is mounted lazily on first Cmd+K.
@@ -204,8 +211,21 @@ function bindEvents() {
     }
   });
 
-  els.refresh.addEventListener('click', () => reload());
+  els.refresh.addEventListener('click', () => {
+    // An explicit refresh implies "give me a fresh take" — drop the
+    // cached LLM labels so the next reload triggers a real round-trip.
+    clearAICache();
+    reload();
+  });
   els.settings.addEventListener('click', openOptions);
+  // Clicking the AI chip is the user's signal that they want a fresh
+  // classification (e.g. after opening a bunch of new tabs). Disabled
+  // while a request is already in flight or AI doesn't apply.
+  els.aiChip.addEventListener('click', () => {
+    if (state.aiStatus === 'thinking' || state.aiStatus === 'na') return;
+    clearAICache();
+    reload();
+  });
   els.google.addEventListener('click', (e) => {
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       window.open('https://www.google.com/', '_blank', 'noopener');
@@ -424,6 +444,14 @@ async function buildGroups(tabs) {
     return heuristic;
   }
 
+  // Cache hit: reuse the previous LLM labels. Labels stick to tabIds,
+  // so closed tabs simply drop out and brand-new tabs gracefully fall
+  // back to the heuristic group until the user explicitly refreshes.
+  if (state.aiOverridesCache.size > 0) {
+    setAIStatus('applied');
+    return applyLLMOverrides(heuristic, tabs, state.aiOverridesCache);
+  }
+
   setAIStatus('thinking');
   classifyTabsWithLLM(tabs, state.settings.llm).then(({ overrides, status }) => {
     if (status === 'offline') {
@@ -434,14 +462,18 @@ async function buildGroups(tabs) {
       setAIStatus('no-result');
       return;
     }
-    const merged = applyLLMOverrides(heuristic, tabs, overrides);
-    state.groups = merged;
+    state.aiOverridesCache = overrides;
+    state.groups = applyLLMOverrides(heuristic, tabs, overrides);
     setAIStatus('applied');
     render();
     toast('AI grouping applied');
   });
 
   return heuristic;
+}
+
+function clearAICache() {
+  state.aiOverridesCache = new Map();
 }
 
 /**
@@ -1441,13 +1473,14 @@ function openOptions() {
 function setAIStatus(s) {
   state.aiStatus = s;
   if (!els.aiChip) return;
+  const clickHint = '\n\nClick to re-classify with a fresh LLM call.';
   const labelByState = {
     'na':        { label: '',                hidden: true,  tip: '' },
     'thinking':  { label: 'AI thinking…',    hidden: false, tip: 'Asking cursor-agent to group these tabs.' },
     'applied':   { label: `AI · ${state.settings?.llm?.model || 'sonnet-4'}`,
-                                              hidden: false, tip: 'LLM groupings are layered on top of the heuristic ones.' },
-    'offline':   { label: 'AI offline',      hidden: false, tip: 'cursor-llm-proxy unreachable on 127.0.0.1:8788. Start it with: bash tools/cursor-llm-proxy/start.sh' },
-    'no-result': { label: 'AI · no changes', hidden: false, tip: 'LLM replied but the result was empty or unparseable.' },
+                                              hidden: false, tip: 'LLM groupings are layered on top of the heuristic ones.' + clickHint },
+    'offline':   { label: 'AI offline',      hidden: false, tip: 'cursor-llm-proxy unreachable on 127.0.0.1:8788. Start it with: bash tools/cursor-llm-proxy/start.sh' + clickHint },
+    'no-result': { label: 'AI · no changes', hidden: false, tip: 'LLM replied but the result was empty or unparseable.' + clickHint },
   };
   const cfg = labelByState[s] || labelByState['na'];
   els.aiChip.hidden = cfg.hidden;
