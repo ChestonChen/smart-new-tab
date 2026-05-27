@@ -44,11 +44,22 @@ Everything runs locally. No tracking, no analytics, no ads. Optional AI grouping
 
 ## Install (developer mode)
 
-1. Clone or download this repo.
-2. Open `chrome://extensions` in Chrome / Edge / Brave.
-3. Toggle **Developer mode** (top right).
-4. Click **Load unpacked** and select this folder.
-5. Open a new tab.
+```bash
+git clone https://github.com/ChestonChen/smart-new-tab.git ~/Projects/smart-new-tab
+# or, with SSH:
+# git clone git@github.com:ChestonChen/smart-new-tab.git ~/Projects/smart-new-tab
+```
+
+Prefer not to use Git? Open the repo's homepage, click **Code → Download ZIP**, and unzip wherever you like.
+
+Then:
+
+1. Open `chrome://extensions/` in Chrome / Edge / Brave.
+2. Toggle **Developer mode** (top right).
+3. Click **Load unpacked** and select the `smart-new-tab` folder (the folder itself, not the `manifest.json` inside).
+4. Open a new tab — the Smart New Tab dashboard should take over.
+
+To update later: `git pull` in the folder, then open `chrome://extensions/` and click the **↻** reload icon on the Smart New Tab card.
 
 To uninstall: same page, **Remove**.
 
