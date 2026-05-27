@@ -29,7 +29,24 @@ export const DEFAULT_SETTINGS = {
 
 export async function loadSettings() {
   const data = await chrome.storage.sync.get('settings');
-  const merged = deepMerge(DEFAULT_SETTINGS, data.settings || {});
+  let merged = deepMerge(DEFAULT_SETTINGS, data.settings || {});
+
+  // One-shot migration. AI grouping is no longer user-configurable;
+  // older builds may have persisted provider:'openai' + a stale endpoint.
+  // If the stored llm block doesn't match the pinned defaults, overwrite
+  // it (and discard any leftover apiKey) so the dashboard talks to
+  // cursor-llm-proxy on the next call.
+  const stored = merged.llm || {};
+  const expected = DEFAULT_SETTINGS.llm;
+  const drifted =
+    stored.provider !== expected.provider ||
+    stored.endpoint !== expected.endpoint ||
+    stored.enabled !== expected.enabled ||
+    !!stored.apiKey;
+  if (drifted) {
+    merged = { ...merged, llm: { ...expected } };
+    try { await saveSettings(merged); } catch { /* best-effort */ }
+  }
   return merged;
 }
 
