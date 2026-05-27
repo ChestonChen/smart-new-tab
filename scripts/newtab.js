@@ -42,6 +42,7 @@ const els = {
   settings: document.getElementById('settings-btn'),
 
   groupMode: document.getElementById('group-mode'),
+  aiChip: document.getElementById('ai-chip'),
   summaryStat: document.getElementById('summary-stat'),
   dedupeBtn: document.getElementById('dedupe-btn'),
   dedupeCount: document.getElementById('dedupe-count'),
@@ -131,6 +132,13 @@ const state = {
   staleDismissed: false,
   // Drag-and-drop: id of the tab currently being dragged.
   dragTabId: null,
+  // AI status state machine, surfaced in the top "AI" chip:
+  //   'na'          — current group mode doesn't use AI (domain/window)
+  //   'thinking'    — request in flight
+  //   'applied'     — last response was OK and overrides were applied
+  //   'offline'     — proxy unreachable on last try
+  //   'no-result'   — proxy reachable but reply was unusable
+  aiStatus: 'na',
 };
 
 // Command palette is mounted lazily on first Cmd+K.
@@ -398,19 +406,37 @@ async function refreshStaleState() {
 
 async function buildGroups(tabs) {
   const mode = state.settings.groupMode || 'domain';
-  if (mode === 'domain') return groupByDomain(tabs);
-  if (mode === 'window') return groupByWindow(tabs);
+  if (mode === 'domain') {
+    setAIStatus('na');
+    return groupByDomain(tabs);
+  }
+  if (mode === 'window') {
+    setAIStatus('na');
+    return groupByWindow(tabs);
+  }
 
   // category mode
   const heuristic = categorizeHeuristic(tabs, {
     userRules: state.settings.userRules,
   });
-  if (!state.settings.llm?.enabled) return heuristic;
+  if (!state.settings.llm?.enabled) {
+    setAIStatus('na');
+    return heuristic;
+  }
 
-  classifyTabsWithLLM(tabs, state.settings.llm).then((overrides) => {
-    if (!overrides || overrides.size === 0) return;
+  setAIStatus('thinking');
+  classifyTabsWithLLM(tabs, state.settings.llm).then(({ overrides, status }) => {
+    if (status === 'offline') {
+      setAIStatus('offline');
+      return;
+    }
+    if (status !== 'ok' || overrides.size === 0) {
+      setAIStatus('no-result');
+      return;
+    }
     const merged = applyLLMOverrides(heuristic, tabs, overrides);
     state.groups = merged;
+    setAIStatus('applied');
     render();
     toast('AI grouping applied');
   });
@@ -540,6 +566,10 @@ function renderGroup({ info, items }) {
   // across reloads and across windows.
   node.style.setProperty('--group-hue', hashHue(info.label));
   node.querySelector('.group-name').textContent = info.label;
+  if (info.aiGenerated) {
+    node.querySelector('.group-ai-badge').hidden = false;
+    node.classList.add('group-ai');
+  }
 
   const count = items.length;
   node.querySelector('.group-count').textContent = count;
@@ -1404,6 +1434,26 @@ async function handlePaletteAction(action) {
 
 function openOptions() {
   chrome.runtime.openOptionsPage();
+}
+
+// AI status chip in the "Open tabs" header. Surfaces whether AI grouping
+// is currently in play, and why (mode, in-flight, offline, applied).
+function setAIStatus(s) {
+  state.aiStatus = s;
+  if (!els.aiChip) return;
+  const labelByState = {
+    'na':        { label: '',                hidden: true,  tip: '' },
+    'thinking':  { label: 'AI thinking…',    hidden: false, tip: 'Asking cursor-agent to group these tabs.' },
+    'applied':   { label: `AI · ${state.settings?.llm?.model || 'sonnet-4'}`,
+                                              hidden: false, tip: 'LLM groupings are layered on top of the heuristic ones.' },
+    'offline':   { label: 'AI offline',      hidden: false, tip: 'cursor-llm-proxy unreachable on 127.0.0.1:8788. Start it with: bash tools/cursor-llm-proxy/start.sh' },
+    'no-result': { label: 'AI · no changes', hidden: false, tip: 'LLM replied but the result was empty or unparseable.' },
+  };
+  const cfg = labelByState[s] || labelByState['na'];
+  els.aiChip.hidden = cfg.hidden;
+  els.aiChip.dataset.state = s;
+  els.aiChip.title = cfg.tip;
+  els.aiChip.querySelector('.ai-chip-label').textContent = cfg.label;
 }
 
 function debounce(fn, wait) {

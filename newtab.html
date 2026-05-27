@@ -141,6 +141,10 @@
           <option value="category">by category</option>
           <option value="window">by window</option>
         </select>
+        <span class="ai-chip" id="ai-chip" hidden data-state="idle" title="">
+          <span class="ai-chip-dot"></span>
+          <span class="ai-chip-label">AI</span>
+        </span>
       </div>
       <div class="oth-right">
         <span class="oth-stat" id="summary-stat">—</span>
@@ -222,6 +226,10 @@
       <header class="group-head">
         <div class="group-title-row">
           <h3 class="group-name"></h3>
+          <span class="group-ai-badge" hidden title="Label suggested by the LLM (cursor-agent)">
+            <span class="group-ai-spark">✦</span>
+            <span>AI</span>
+          </span>
           <span class="group-pill"><span class="group-count"></span><span class="group-count-label"> tabs open</span></span>
         </div>
       </header>

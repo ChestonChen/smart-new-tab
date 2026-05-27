@@ -270,6 +270,7 @@ export function applyLLMOverrides(heuristicGroups, tabs, overrides) {
           id: 'ai:' + (ov.category || 'misc').toLowerCase().replace(/[^a-z0-9_-]+/g, '-'),
           label: ov.category || 'AI Group',
           emoji: ov.emoji || '✨',
+          aiGenerated: true,
         }
       : tabHeuristic.get(t.id) || OTHER;
     ensure(info).items.push(t);

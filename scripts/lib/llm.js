@@ -8,8 +8,16 @@
  *     endpoint + apiKey are configured (Ollama is exempt from apiKey).
  *
  * The function takes a list of tabs and a settings object, and returns
- * a Map<tabId, { category: string, emoji?: string }>.
- * On any failure we fall back to an empty map (heuristic-only mode).
+ *   {
+ *     overrides: Map<tabId, { category: string, emoji?: string }>,
+ *     status:    'ok' | 'disabled' | 'empty' | 'offline' | 'parse-error',
+ *   }
+ *
+ *   - 'ok'          — LLM responded and at least one tab got tagged
+ *   - 'disabled'    — settings.llm.enabled was false; nothing tried
+ *   - 'empty'       — no tabs to classify
+ *   - 'offline'     — fetch threw (proxy unreachable, DNS fail, etc.)
+ *   - 'parse-error' — LLM responded but reply wasn't a usable JSON shape
  */
 
 const SYSTEM_PROMPT = `You are an assistant that groups browser tabs into short, intuitive categories.
@@ -32,18 +40,24 @@ Return JSON of shape:
 }`;
 
 export async function classifyTabsWithLLM(tabs, llmConfig) {
-  if (!llmConfig?.enabled) return new Map();
-  if (!tabs || tabs.length === 0) return new Map();
+  if (!llmConfig?.enabled) return { overrides: new Map(), status: 'disabled' };
+  if (!tabs || tabs.length === 0) return { overrides: new Map(), status: 'empty' };
 
   const compactTabs = tabs.map((t) => ({ id: t.id, host: t.host, title: t.title }));
 
+  let response;
   try {
-    const response = await callProvider(llmConfig, compactTabs);
-    return parseLLMResponse(response, tabs);
+    response = await callProvider(llmConfig, compactTabs);
   } catch (err) {
-    console.warn('[smart-new-tab] LLM classify failed, falling back to heuristics:', err);
-    return new Map();
+    console.warn('[smart-new-tab] LLM offline, falling back to heuristics:', err);
+    return { overrides: new Map(), status: 'offline' };
   }
+
+  const overrides = parseLLMResponse(response, tabs);
+  if (overrides.size === 0) {
+    return { overrides, status: 'parse-error' };
+  }
+  return { overrides, status: 'ok' };
 }
 
 async function callProvider(cfg, compactTabs) {
