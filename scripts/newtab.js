@@ -108,7 +108,6 @@ const els = {
   weeklyTime: document.getElementById('weekly-time'),
 
   aiStatusValue: document.getElementById('ai-status-value'),
-  openOptions: document.getElementById('open-options'),
 };
 
 const tpl = {
@@ -209,8 +208,6 @@ function bindEvents() {
       window.location.href = 'https://www.google.com/';
     }
   });
-  els.openOptions.addEventListener('click', (e) => { e.preventDefault(); openOptions(); });
-
   els.groupMode.addEventListener('change', async () => {
     state.settings.groupMode = els.groupMode.value;
     await saveSettings(state.settings);
