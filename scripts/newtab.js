@@ -31,6 +31,11 @@ import {
 } from './lib/workspaces.js';
 import { applyTheme } from './lib/themes.js';
 import { createCommandPalette } from './lib/command-palette.js';
+import {
+  loadAICache,
+  mergeAICache,
+  clearAICache as clearAICacheDisk,
+} from './lib/ai-cache.js';
 
 const els = {
   greeting: document.getElementById('greeting'),
@@ -139,13 +144,11 @@ const state = {
   //   'offline'     — proxy unreachable on last try
   //   'no-result'   — proxy reachable but reply was unusable
   aiStatus: 'na',
-  // Cached LLM result for the current session. Reused on every reload
-  // so closing / dragging / opening tabs doesn't trigger a fresh ~15s
-  // LLM round-trip. The cache is invalidated only when the user hits
-  // the refresh button or clicks the AI chip; dead tab ids in the
-  // cache are inert (applyLLMOverrides only consumes entries for tabs
-  // that are still on screen).
-  aiOverridesCache: new Map(),
+  // Disk-backed cache: Map<dupeKey (normalized URL), {category, emoji, savedAt}>.
+  // Hydrated from chrome.storage.local on init. Survives restarts, tab close
+  // + reopen, even reinstalls (until TTL kicks in). Daily use becomes 0-wait
+  // because every previously-seen URL already has its label.
+  aiOverridesByUrl: new Map(),
 };
 
 // Command palette is mounted lazily on first Cmd+K.
@@ -166,6 +169,15 @@ async function init() {
   bindEvents();
   mountCommandPalette();
   refreshWorkspaces();
+
+  // Hydrate disk-backed AI cache (prunes expired entries in the same call).
+  // Done before reload() so the first paint already has cached labels.
+  try {
+    state.aiOverridesByUrl = await loadAICache();
+  } catch (err) {
+    console.warn('[smart-new-tab] AI cache hydrate failed:', err);
+    state.aiOverridesByUrl = new Map();
+  }
 
   // Stamp today as an active day so we can compute the "X days
   // active" metric honestly. Fire-and-forget — never block UI on it.
@@ -211,19 +223,20 @@ function bindEvents() {
     }
   });
 
-  els.refresh.addEventListener('click', () => {
+  els.refresh.addEventListener('click', async () => {
     // An explicit refresh implies "give me a fresh take" — drop the
-    // cached LLM labels so the next reload triggers a real round-trip.
-    clearAICache();
+    // cached LLM labels (memory + disk) so the next reload triggers a
+    // real round-trip.
+    await clearAICache();
     reload();
   });
   els.settings.addEventListener('click', openOptions);
   // Clicking the AI chip is the user's signal that they want a fresh
   // classification (e.g. after opening a bunch of new tabs). Disabled
   // while a request is already in flight or AI doesn't apply.
-  els.aiChip.addEventListener('click', () => {
+  els.aiChip.addEventListener('click', async () => {
     if (state.aiStatus === 'thinking' || state.aiStatus === 'na') return;
-    clearAICache();
+    await clearAICache();
     reload();
   });
   els.google.addEventListener('click', (e) => {
@@ -444,36 +457,92 @@ async function buildGroups(tabs) {
     return heuristic;
   }
 
-  // Cache hit: reuse the previous LLM labels. Labels stick to tabIds,
-  // so closed tabs simply drop out and brand-new tabs gracefully fall
-  // back to the heuristic group until the user explicitly refreshes.
-  if (state.aiOverridesCache.size > 0) {
-    setAIStatus('applied');
-    return applyLLMOverrides(heuristic, tabs, state.aiOverridesCache);
+  // Materialize a per-tabId override map from the URL-keyed disk cache.
+  // Any tab whose dupeKey is missing from the cache is "uncached" and
+  // becomes a candidate for an LLM call below.
+  const cachedTabOverrides = new Map();
+  const uncachedTabs = [];
+  for (const t of tabs) {
+    const hit = state.aiOverridesByUrl.get(t.dupeKey);
+    if (hit && hit.category) {
+      cachedTabOverrides.set(t.id, { category: hit.category, emoji: hit.emoji });
+    } else {
+      uncachedTabs.push(t);
+    }
   }
 
+  // Fully cached: 0-wait happy path. The vast majority of "I opened a
+  // new tab" or "I closed a tab" reloads land here.
+  if (uncachedTabs.length === 0 && cachedTabOverrides.size > 0) {
+    setAIStatus('applied');
+    return applyLLMOverrides(heuristic, tabs, cachedTabOverrides);
+  }
+
+  // Nothing cached at all (e.g. first ever launch, or user just cleared
+  // the cache). Show heuristic immediately, kick off LLM in the background.
+  if (cachedTabOverrides.size === 0 && uncachedTabs.length === 0) {
+    setAIStatus('na');
+    return heuristic;
+  }
+
+  // Partial-or-zero cache: paint heuristic + any cached labels first, then
+  // ask the LLM ONLY about the uncached tabs. This keeps the prompt small
+  // and the round-trip fast.
   setAIStatus('thinking');
-  classifyTabsWithLLM(tabs, state.settings.llm).then(({ overrides, status }) => {
+  classifyTabsWithLLM(uncachedTabs, state.settings.llm).then(async ({ overrides, status }) => {
     if (status === 'offline') {
       setAIStatus('offline');
+      // Cached labels (if any) are still useful — apply them.
+      if (cachedTabOverrides.size > 0) {
+        state.groups = applyLLMOverrides(heuristic, tabs, cachedTabOverrides);
+        render();
+      }
       return;
     }
     if (status !== 'ok' || overrides.size === 0) {
-      setAIStatus('no-result');
+      setAIStatus(cachedTabOverrides.size > 0 ? 'applied' : 'no-result');
+      if (cachedTabOverrides.size > 0) {
+        state.groups = applyLLMOverrides(heuristic, tabs, cachedTabOverrides);
+        render();
+      }
       return;
     }
-    state.aiOverridesCache = overrides;
-    state.groups = applyLLMOverrides(heuristic, tabs, overrides);
+
+    // Persist the new verdicts to disk (URL-keyed) and merge into the
+    // tabId-keyed map we're about to apply.
+    const byUrl = new Map();
+    for (const [tabId, v] of overrides.entries()) {
+      const t = uncachedTabs.find((x) => x.id === tabId);
+      if (!t) continue;
+      byUrl.set(t.dupeKey, v);
+      cachedTabOverrides.set(tabId, v);
+    }
+    try {
+      await mergeAICache(state.aiOverridesByUrl, byUrl);
+    } catch (err) {
+      console.warn('[smart-new-tab] AI cache persist failed:', err);
+    }
+
+    state.groups = applyLLMOverrides(heuristic, tabs, cachedTabOverrides);
     setAIStatus('applied');
     render();
     toast('AI grouping applied');
   });
 
-  return heuristic;
+  // Paint immediately with whatever we already have (heuristic + any
+  // cached labels). The LLM result will swap in via render() later.
+  return cachedTabOverrides.size > 0
+    ? applyLLMOverrides(heuristic, tabs, cachedTabOverrides)
+    : heuristic;
 }
 
-function clearAICache() {
-  state.aiOverridesCache = new Map();
+async function clearAICache() {
+  state.aiOverridesByUrl = new Map();
+  try {
+    await clearAICacheDisk();
+  } catch (err) {
+    console.warn('[smart-new-tab] AI cache clear failed:', err);
+  }
 }
 
 /**
