@@ -20,7 +20,9 @@ Everything runs locally. No tracking, no analytics, no ads. Optional AI grouping
 - **Duplicate detection** with URL normalization (UTM params / fragments / trailing slash stripped). Close one duplicate or all of them.
 - **Custom rules** — map any `host` / URL / title substring to your own category and emoji.
 - **AI grouping via Cursor** — when the bundled [`cursor-llm-proxy`](tools/cursor-llm-proxy/) is running on localhost, the dashboard layers semantic LLM groupings on top of the heuristic ones. No API key, no per-request cost outside your Cursor subscription. Privacy contract: only `host` + `title` are sent.
+- **Persistent AI cache** — every LLM verdict is keyed by normalized URL and saved to `chrome.storage.local` with a 7-day TTL and a 5,000-entry ceiling. Reopening the dashboard or closing/dragging tabs **never re-triggers classification** for URLs already seen; the cost of AI grouping is paid once per URL per week.
 - **Pinned tabs strip** — Chrome-pinned tabs surface in a dedicated row above the groups.
+- **Bookmarks bar** — opt-in toggle in the topbar mirrors your Chrome bookmarks (Bookmarks Bar + "Other bookmarks") with favicons, folder dropdowns, and modifier-click behavior. Cmd/Ctrl/middle-click opens in a new tab, Shift opens in a new window — same gestures as native Chrome.
 - **Drag and drop reclassification** — drag a tab onto any category group to persist a custom rule.
 
 ### Productivity
@@ -89,7 +91,11 @@ bash tools/cursor-llm-proxy/start.sh
 ```
 
 Open a new tab. The dashboard paints heuristic groups instantly and
-~10s later the LLM groupings fold in on top.
+~10s later the LLM groupings fold in on top. Subsequent visits hit
+the persistent disk cache and are 0-wait — the LLM is only consulted
+for URLs it has never seen, or whose cached verdict has aged past the
+7-day TTL. Click the AI chip in the header (or the dashboard refresh
+button) to invalidate the cache and force a fresh classification.
 
 **Privacy contract:** only the `host` and the trimmed `title` of each
 tab are transmitted, and only to your own `127.0.0.1`. Full URL, query
@@ -132,6 +138,8 @@ smart-new-tab/
 │       ├── categorize.js          heuristic grouping rules
 │       ├── site-names.js          host → friendly site label map
 │       ├── llm.js                 optional LLM client
+│       ├── ai-cache.js            disk-backed AI override cache (URL-keyed)
+│       ├── bookmarks.js           chrome.bookmarks wrapper for the strip
 │       ├── storage.js             chrome.storage.sync wrapper
 │       ├── stats.js               impact metrics + sparklines + weekly report
 │       ├── activity.js            per-tab last-active timestamps (stale detection)
@@ -164,8 +172,8 @@ After editing any file, visit `chrome://extensions` and click the reload (↻) i
 | Permission   | Why                                                                       |
 | ------------ | ------------------------------------------------------------------------- |
 | `tabs`       | List, switch, close tabs across windows.                                  |
-| `storage`    | Save settings, custom rules, impact stats, activity timestamps, workspaces. |
-| `bookmarks`  | Bookmark a tab (single or bulk) from the dashboard.                       |
+| `storage`    | Save settings, custom rules, impact stats, activity timestamps, workspaces, persistent AI cache. |
+| `bookmarks`  | Read your Chrome bookmarks for the bookmarks-bar strip, and create new bookmarks (single or bulk) from the dashboard. |
 | `favicon`    | Render favicons via Chrome's built-in `_favicon/` endpoint.               |
 | `sessions`   | Power the *Recently closed* row.                                          |
 
